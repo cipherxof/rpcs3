@@ -17,7 +17,6 @@
 
 #include "Emu/Cell/lv2/sys_event.h"
 #include "Emu/Cell/lv2/sys_process.h"
-#include "Emu/Cell/lv2/sys_timer.h"
 
 LOG_CHANNEL(sceNpTrophy);
 
@@ -422,18 +421,25 @@ error_code sceNpTrophyRegisterContext(ppu_thread& ppu, u32 context, u32 handle, 
 			sysutil_register_cb([=](ppu_thread& cb_ppu) -> s32
 			{
 				statusCb(cb_ppu, context, status.first, completed, status.second, arg);
-				queued--;
+				if (queued-- == 1)
+				{
+					queued.notify_all();
+				}
 				return 0;
 			});
 		}
 
-		u32 passed_time=0;
-		while (queued)
+		lv2_obj::sleep(ppu);
+
+		// If too much time passes just send the rest of the events anyway
+		if (const u32 val = queued)
 		{
-			sys_timer_usleep(ppu, 5000);
-			passed_time += 5;
-			// If too much time passes just send the rest of the events anyway
-			if (passed_time > 300) break;
+			queued.wait(val, atomic_wait_timeout{300000});
+		}
+
+		if (ppu.test_stopped())
+		{
+			return 0;
 		}
 	}
 
