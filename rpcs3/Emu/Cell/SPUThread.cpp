@@ -1653,7 +1653,7 @@ void spu_thread::do_putlluc(const spu_mfc_cmd& args)
 		auto& data = vm::_ref<decltype(rdata)>(addr);
 		auto& res = vm::reservation_lock(addr, 128);
 
-		*reinterpret_cast<atomic_t<u32>*>(&data) += 0;
+		atomic_storage<uchar>::fetch_or((uchar&)data, 0);
 
 		if (g_cfg.core.spu_accurate_putlluc)
 		{
@@ -1868,7 +1868,7 @@ bool spu_thread::process_mfc_cmd()
 
 			if (g_cfg.core.spu_accurate_getllar)
 			{
-				*reinterpret_cast<atomic_t<u32>*>(&data) += 0;
+				+(volatile char&)data;
 
 				// Full lock (heavyweight)
 				// TODO: vm::check_addr
@@ -1960,7 +1960,7 @@ bool spu_thread::process_mfc_cmd()
 
 				if (rtime == old_time)
 				{
-					*reinterpret_cast<atomic_t<u32>*>(&data) += 0;
+					atomic_storage<uchar>::fetch_or((uchar&)data, 0);
 
 					// Full lock (heavyweight)
 					// TODO: vm::check_addr
