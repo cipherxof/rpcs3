@@ -281,7 +281,7 @@ struct vdec_context final
 						if (frame->interlaced_frame)
 						{
 							// NPEB01838, NPUB31260
-							cellVdec.todo("Interlaced frames not supported (0x%x)", frame->interlaced_frame);
+							//cellVdec.todo("Interlaced frames not supported (0x%x)", frame->interlaced_frame);
 						}
 
 						if (frame->repeat_pict)

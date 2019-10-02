@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "Emu/Cell/PPUModule.h"
 
 #include "cellAudioOut.h"
@@ -186,7 +186,7 @@ s32 cellAudioOutGetNumberOfDevice(u32 audioOut)
 
 s32 cellAudioOutGetDeviceInfo(u32 audioOut, u32 deviceIndex, vm::ptr<CellAudioOutDeviceInfo> info)
 {
-	cellSysutil.todo("cellAudioOutGetDeviceInfo(audioOut=%d, deviceIndex=%d, info=*0x%x)", audioOut, deviceIndex, info);
+	//cellSysutil.todo("cellAudioOutGetDeviceInfo(audioOut=%d, deviceIndex=%d, info=*0x%x)", audioOut, deviceIndex, info);
 
 	if (deviceIndex) return CELL_AUDIO_OUT_ERROR_DEVICE_NOT_FOUND;
 
