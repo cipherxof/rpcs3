@@ -576,9 +576,8 @@ template<typename T> std::string FragmentProgramDecompiler::GetSRC(T src)
 		case 0xA:
 		case 0xB:
 		case 0xC:
-		case 0xD:
 		{
-			// TEX0 - TEX9
+			// TEX0 - TEX8
 			// Texcoord mask seems to reset the last 2 arguments to 0 and 1 if set
 			if (m_prog.texcoord_is_2d(dst.src_attr_reg_num - 4))
 			{
@@ -589,6 +588,41 @@ template<typename T> std::string FragmentProgramDecompiler::GetSRC(T src)
 			{
 				ret += reg_var;
 			}
+			break;
+		}
+		case 0xD:
+		{
+			// TEX9 behavior changes depending on instruction
+			switch (dst.opcode)
+			{
+				default:
+				{
+					// Accessing TC9 via most instructions results in empty register initialization
+					// TODO: Classify all instructions exempt from this rule
+					ret += getFloatTypeName(4) + "(0., 0., 0., 1.)";
+					apply_precision_modifier = false;
+					insert                   = false;
+					break;
+				}
+				// Not confirmed, needs more thorough testing
+				case RSX_FP_OPCODE_BEM:
+				case RSX_FP_OPCODE_TXPBEM:
+				// Sampling operations
+				case RSX_FP_OPCODE_TEX:
+				case RSX_FP_OPCODE_TEXBEM:
+				case RSX_FP_OPCODE_TXB:
+				case RSX_FP_OPCODE_TXD:
+				case RSX_FP_OPCODE_TXL:
+				case RSX_FP_OPCODE_TXP:
+				{
+					// Behaves like a TEX[n] register in this case
+					if (m_prog.texcoord_is_2d(dst.src_attr_reg_num - 4))
+						ret += getFloatTypeName(4) + "(" + reg_var + ".x, " + reg_var + ".y, 0., 1.)";
+					else
+						ret += reg_var;
+					break;
+				}
+			};
 			break;
 		}
 		default:
