@@ -73,13 +73,7 @@ extern void sysutil_send_system_cmd(u64 status, u64 param)
 struct syscache
 {
 	atomic_t<u32> state = 0;
-	std::string cache_id;
-	shared_mutex mtx;
-
-	~syscache()
-	{
-		fs::write_file(fs::get_cache_dir() + "/cache/cacheId", fs::rewrite, cache_id);
-	}
+	std::string cache_path;
 };
 
 template <>
@@ -315,8 +309,6 @@ s32 cellSysutilUnregisterCallback(u32 slot)
 	return CELL_OK;
 }
 
-const std::string cache_path = "/dev_hdd1/cache";
-
 s32 cellSysCacheClear()
 {
 	cellSysutil.warning("cellSysCacheClear()");
@@ -328,10 +320,14 @@ s32 cellSysCacheClear()
 		return CELL_SYSCACHE_ERROR_NOTMOUNTED;
 	}
 
-	if (!vfs::host::remove_all(vfs::get(cache_path), Emu.GetHdd1Dir(), false))
+	std::string local_dir = vfs::get(cache->cache_path);
+
+	if (!fs::exists(local_dir) || !fs::is_dir(local_dir))
 	{
 		return CELL_SYSCACHE_ERROR_ACCESS_ERROR;
 	}
+
+	fs::remove_all(local_dir, false);
 
 	return CELL_SYSCACHE_RET_OK_CLEARED;
 }
@@ -347,42 +343,17 @@ s32 cellSysCacheMount(vm::ptr<CellSysCacheParam> param)
 		return CELL_SYSCACHE_ERROR_PARAM;
 	}
 
-	const std::string cache_id(+param->cacheId);
+	std::string cache_id = param->cacheId;
+	std::string cache_path = "/dev_hdd1/cache/" + cache_id;
 	strcpy_trunc(param->getCachePath, cache_path);
 
-	cellSysutil.notice("cellSysCacheMount: cache id=%s", cache_id.c_str());
-
-	std::lock_guard lock(cache->mtx);
-
-	if (cache->state.exchange(1) == 0)
+	if (!fs::create_dir(vfs::get(cache_path)) && !cache_id.empty())
 	{
-		// Get last cache ID, lasts between application boots
-		fs::file last_id(fs::get_cache_dir() + "/cache/cacheId", fs::read + fs::create);
-		const auto id_size = last_id.size();
-
-		if (id_size && [&]()
-		{
-			std::unique_ptr<char> buf(new char[id_size]);
-			last_id.read(buf.get(), id_size);
-
-			// Compare specified ID with old one
-			return id_size == cache_id.size() && !memcmp(buf.get(), cache_id.c_str(), id_size);
-		}())
-		{
-			return CELL_SYSCACHE_RET_OK_RELAYED;
-		}
-	}
-	else
-	{
-		if (cache->cache_id == cache_id)
-		{
-			return CELL_SYSCACHE_RET_OK_RELAYED;
-		}
+		return CELL_SYSCACHE_RET_OK_RELAYED;
 	}
 
-	// Set new cache ID (clear previous)
-	vfs::host::remove_all(vfs::get(cache_path), Emu.GetHdd1Dir(), false);
-	cache->cache_id = std::move(cache_id);
+	cache->cache_path = std::move(cache_path);
+	cache->state = 1;
 	return CELL_SYSCACHE_RET_OK_CLEARED;
 }
 
