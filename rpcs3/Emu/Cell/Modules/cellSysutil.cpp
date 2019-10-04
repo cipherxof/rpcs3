@@ -347,7 +347,7 @@ s32 cellSysCacheMount(vm::ptr<CellSysCacheParam> param)
 		return CELL_SYSCACHE_ERROR_PARAM;
 	}
 
-	const std::string cache_id(+param->cacheId);
+	const std::string cache_id = param->cacheId;
 	strcpy_trunc(param->getCachePath, cache_path);
 
 	cellSysutil.notice("cellSysCacheMount: cache id=%s", cache_id.c_str());
@@ -360,13 +360,13 @@ s32 cellSysCacheMount(vm::ptr<CellSysCacheParam> param)
 		fs::file last_id(fs::get_cache_dir() + "/cache/cacheId", fs::read + fs::create);
 		const auto id_size = last_id.size();
 
-		if (id_size && [&]()
+		// Compare specified ID with old one (if size is 0 clear unconditionally)
+		if (id_size && id_size == cache_id.size() && [&]()
 		{
-			std::unique_ptr<char> buf(new char[id_size]);
+			std::unique_ptr<char[]> buf(new char[id_size]);
 			last_id.read(buf.get(), id_size);
 
-			// Compare specified ID with old one
-			return id_size == cache_id.size() && !memcmp(buf.get(), cache_id.c_str(), id_size);
+			return !memcmp(buf.get(), cache_id.c_str(), id_size);
 		}())
 		{
 			return CELL_SYSCACHE_RET_OK_RELAYED;
