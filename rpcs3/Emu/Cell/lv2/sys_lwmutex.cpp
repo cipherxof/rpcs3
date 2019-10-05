@@ -68,6 +68,13 @@ error_code _sys_lwmutex_destroy(ppu_thread& ppu, u32 lwmutex_id)
 
 error_code _sys_lwmutex_lock(ppu_thread& ppu, u32 lwmutex_id, u64 timeout)
 {
+	bool fake_timeout = false;
+	if (timeout == 0 && (ppu.is_mgs4_main_thread || ppu.is_mgs4_audio_thread))
+	{
+		timeout = 250000;
+		fake_timeout = true;
+	}
+
 	vm::temporary_unlock(ppu);
 
 	sys_lwmutex.trace("_sys_lwmutex_lock(lwmutex_id=0x%x, timeout=0x%llx)", lwmutex_id, timeout);
@@ -119,6 +126,7 @@ error_code _sys_lwmutex_lock(ppu_thread& ppu, u32 lwmutex_id, u64 timeout)
 		return not_an_error(ppu.gpr[3]);
 	}
 
+	const u64 start_time = get_system_time();
 	while (!ppu.state.test_and_reset(cpu_flag::signal))
 	{
 		if (ppu.is_stopped())
@@ -138,7 +146,19 @@ error_code _sys_lwmutex_lock(ppu_thread& ppu, u32 lwmutex_id, u64 timeout)
 					continue;
 				}
 
-				ppu.gpr[3] = CELL_ETIMEDOUT;
+				if (fake_timeout)
+				{
+					sys_lwmutex.error("HACK _sys_lwmutex_lock(lwmutex_id=0x%x) in thread %s returning CELL_OK because %llu us has passed", lwmutex_id, ppu.get_name().c_str(), timeout);
+					for (auto waitIt=mutex->sq.cbegin(),end=mutex->sq.cend(); waitIt!=end; waitIt++)
+					{
+						cpu_thread* thrd = *waitIt;
+						sys_lwmutex.error("\twaiting thread id 0x%x name: %s", thrd->id, thrd->get_name().c_str());
+					}
+					ppu.gpr[3] = CELL_OK;
+				}
+				else
+					ppu.gpr[3] = CELL_ETIMEDOUT;
+
 				break;
 			}
 		}

@@ -726,6 +726,9 @@ ppu_thread::ppu_thread(const ppu_thread_params& param, std::string_view name, u3
 	, joiner(-!!detached)
 	, ppu_name(name)
 {
+	is_mgs4_main_thread = memcmp("MGS4 MAIN",name.data(),name.length()) == 0;
+	is_mgs4_audio_thread = memcmp("Audio_Port",name.data(),name.length()) == 0;
+
 	gpr[1] = stack_addr + stack_size - 0x70;
 
 	gpr[13] = param.tls_addr;

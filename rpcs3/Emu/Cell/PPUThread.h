@@ -161,7 +161,9 @@ public:
 			has the same sign as the denormalized or underflowing value.
 	*/
 	bool nj = false;
-
+	bool is_mgs4_main_thread = false;
+	bool is_mgs4_audio_thread = false;
+	
 	u32 raddr{0}; // Reservation addr
 	u64 rtime{0};
 	u64 rdata{0}; // Reservation data
