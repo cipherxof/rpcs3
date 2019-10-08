@@ -148,7 +148,9 @@ error_code _sys_lwmutex_lock(ppu_thread& ppu, u32 lwmutex_id, u64 timeout)
 
 				if (fake_timeout)
 				{
-					sys_lwmutex.error("HACK _sys_lwmutex_lock(lwmutex_id=0x%x) in thread %s returning CELL_OK because %llu us has passed", lwmutex_id, ppu.get_name().c_str(), timeout);
+					const auto lock_var = mutex->control->lock_var.load();
+					sys_lwmutex.error("HACK _sys_lwmutex_lock(lwmutex_id=0x%x) in thread %s returning CELL_OK because %llu us has passed (o: 0x%x w: %u)", 
+										lwmutex_id, ppu.get_name().c_str(), get_system_time()-start_time, lock_var.owner, lock_var.waiter);
 					for (auto waitIt=mutex->sq.cbegin(),end=mutex->sq.cend(); waitIt!=end; waitIt++)
 					{
 						cpu_thread* thrd = *waitIt;
