@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "Emu/System.h"
 #include "Emu/Cell/PPUModule.h"
 #include "Emu/IdManager.h"
@@ -126,8 +126,23 @@ void sys_initialize_tls(ppu_thread& ppu, u64 main_thread_id, u32 tls_seg_addr, u
 
 error_code sys_ppu_thread_create(ppu_thread& ppu, vm::ptr<u64> thread_id, u32 entry, u64 arg, s32 prio, u32 stacksize, u64 flags, vm::cptr<char> threadname)
 {
-	sysPrxForUser.warning("sys_ppu_thread_create(thread_id=*0x%x, entry=0x%x, arg=0x%llx, prio=%d, stacksize=0x%x, flags=0x%llx, threadname=%s)",
-		thread_id, entry, arg, prio, stacksize, flags, threadname);
+	sysPrxForUser.warning("sys_ppu_thread_create(thread_id=*0x%x, entry=0x%x, arg=0x%llx, prio=%d, stacksize=0x%x, flags=0x%llx, threadname=%s)@0x%x",
+		thread_id, entry, arg, prio, stacksize, flags, threadname, ppu.lr);
+	{
+		// Determine stack range
+		u32 stack_ptr = static_cast<u32>(ppu.gpr[1]);
+		u32 stack_min = stack_ptr & ~0xfff;
+		u32 stack_max = stack_min + 4096;
+
+		while (stack_min && vm::check_addr(stack_min - 4096, 4096, vm::page_writable))
+			stack_min -= 4096;
+
+		while (stack_max + 4096 && vm::check_addr(stack_max, 4096, vm::page_writable))
+			stack_max += 4096;
+
+		for (u64 sp = vm::read64(stack_ptr); sp >= stack_min && std::max(sp, sp + 0x200) < stack_max; sp = vm::read64(static_cast<u32>(sp)))
+			sysPrxForUser.warning("\t> from 0x%08llx (0x0)\n", vm::read64(static_cast<u32>(sp + 16)));
+	}
 
 	// Allocate TLS
 	const u32 tls_addr = ppu_alloc_tls();

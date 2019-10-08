@@ -13,6 +13,7 @@
 #include "SPURecompiler.h"
 #include "lv2/sys_sync.h"
 #include "lv2/sys_prx.h"
+#include "lv2/sys_mutex.h"
 #include "Emu/GDB.h"
 
 #ifdef LLVM_AVAILABLE
@@ -467,6 +468,30 @@ std::string ppu_thread::dump() const
 			ret += '\n';
 		}
 	}
+
+	const u32 theNeed = last_mutex_wanted.load();
+	const u32 theGreed = last_mutex_acquired.load();
+	fmt::append(ret, "Last Mutex Wanted: 0x%x", theNeed);
+	{
+		u32 heldBy = 0;
+		if (theNeed != 0)
+		{
+			const auto mutex = idm::get<lv2_obj, lv2_mutex>(theNeed);
+			if (mutex)
+				heldBy = mutex->owner.load();
+		}
+
+		if (heldBy != 0)
+			fmt::append(ret, " (held by id: 0x%x b: %u)", heldBy >> 1, heldBy & 1);
+	}
+	fmt::append(ret, "\nLast Mutex Acquired: 0x%x", theGreed);
+	if (theGreed != 0)
+	{
+		const u64 greedPC = last_acquired_mutex_pc.load();
+		fmt::append(ret, "  @(0x%llx)\n", greedPC);
+	}
+	else
+		fmt::append(ret, "\n");
 
 	if (const auto _time = start_time)
 	{
