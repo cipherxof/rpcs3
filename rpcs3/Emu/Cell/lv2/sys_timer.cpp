@@ -308,7 +308,7 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 	sys_timer.trace("sys_timer_usleep(sleep_time=0x%llx)", sleep_time);
 
 	u32 unlocked_mutex_ids[3] = { 0, 0, 0 };
-	if (sleep_time == 5467)
+	if (sleep_time == 1337 && u32(ppu.gpr[31]) == 0x80410A0Au)
 	{
 		successfulUrgentSpurs++;
 		return CELL_OK;
