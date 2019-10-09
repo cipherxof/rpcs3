@@ -8,6 +8,7 @@
 #include "Emu/Cell/PPUThread.h"
 #include "sys_event.h"
 #include "sys_process.h"
+#include "sys_mutex.h"
 
 #include <thread>
 
@@ -303,7 +304,44 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 {
 	vm::temporary_unlock(ppu);
 
+	static u64 successfulUrgentSpurs = 0;
 	sys_timer.trace("sys_timer_usleep(sleep_time=0x%llx)", sleep_time);
+
+	u32 unlocked_mutex_ids[3] = { 0, 0, 0 };
+	if (sleep_time == 5467)
+	{
+		successfulUrgentSpurs++;
+		return CELL_OK;
+	}
+
+	if (sleep_time == 160 && u32(ppu.gpr[31]) == 0x80410A0Au) //Audio_Control thread failed to cellSpursAddUrgentCommand
+	{
+		static const u32 interest_mutex_ids[3] = { 0x85016400, 0x85016c00, 0x85016a00 };
+
+		size_t unlocked_mut_num = 0;
+		for (const u32 queried_mutex_id : interest_mutex_ids)
+		{
+			auto curr_mutex = idm::get<lv2_obj, lv2_mutex>(queried_mutex_id);
+			if (!curr_mutex)
+				continue;
+
+			const auto owner = curr_mutex->owner.load();
+			if ((owner>>1) == ppu.id)
+			{
+				const auto unlock_err = sys_mutex_unlock(ppu, queried_mutex_id);
+				if (unlock_err)
+					sys_timer.error("sys_timer_usleep failed to unlock mutex 0x%x with err 0x%x", queried_mutex_id, unlock_err.value);
+				else
+					unlocked_mutex_ids[unlocked_mut_num++] = queried_mutex_id;
+			}
+		}
+
+		if (unlocked_mut_num > 0)
+		{
+			sys_timer.error("HACK sys_timer_usleep in Audio Control thread unlocking mutex_1 0x%x mutex_2 0x%x mutex_3 0x%x succ: %llu",
+				unlocked_mutex_ids[0], unlocked_mutex_ids[1], unlocked_mutex_ids[2], successfulUrgentSpurs);
+		}
+	}
 
 	if (sleep_time)
 	{
@@ -321,5 +359,15 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 		std::this_thread::yield();
 	}
 
+	for (size_t i=3; i>0; i--)
+	{
+		const u32 curr_mut_id = unlocked_mutex_ids[i-1];
+		if (curr_mut_id == 0)
+			continue;
+
+		const auto lock_err = sys_mutex_lock(ppu, curr_mut_id, 0);
+		if (lock_err)
+			sys_timer.error("sys_timer_usleep failed to relock mutex_%u 0x%x with err 0x%x", u32(i), curr_mut_id, lock_err.value);
+	}
 	return CELL_OK;
 }

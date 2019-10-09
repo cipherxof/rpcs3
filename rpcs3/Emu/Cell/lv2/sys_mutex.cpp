@@ -218,7 +218,7 @@ error_code sys_mutex_lock(ppu_thread& ppu, u32 mutex_id, u64 timeout)
 	{
 		if (wanted_mutex)
 		{
-			ppu.last_mutex_acquired = mutex_id;
+			ppu.last_mutex_acquired.exchange(mutex_id);
 			ppu.last_acquired_mutex_pc = returnPC;
 			ppu.last_mutex_wanted.compare_exchange(mutex_id, 0);
 		}
@@ -290,7 +290,7 @@ error_code sys_mutex_lock(ppu_thread& ppu, u32 mutex_id, u64 timeout)
 
 	if (ppu.gpr[3] == CELL_OK && wanted_mutex)
 	{
-		ppu.last_mutex_acquired = mutex_id;
+		ppu.last_mutex_acquired.exchange(mutex_id);
 		ppu.last_acquired_mutex_pc = returnPC;
 		ppu.last_mutex_wanted.compare_exchange(mutex_id, 0);
 	}
@@ -339,13 +339,7 @@ error_code sys_mutex_unlock(ppu_thread& ppu, u32 mutex_id)
 
 	sys_mutex.trace("sys_mutex_unlock(mutex_id=0x%x)", mutex_id);
 
-	if (mutex_id == 0x85016400 || mutex_id == 0x85016c00 || mutex_id == 0x85016a00)
-	{
-		static std::atomic<u32> lastLR = 0;
-		const auto oldLR = lastLR.exchange(ppu.lr);
-		if (oldLR != ppu.lr)
-			sys_mutex.error("HACK NEW sys_mutex_unlock(mutex_id=0x%x)@0x%x in thread %s", mutex_id, ppu.lr, ppu.get_name().c_str());
-	}
+
 
 	u32 origOwner = 0;
 	const auto mutex = idm::check<lv2_obj, lv2_mutex>(mutex_id, [&](lv2_mutex& mutex)
