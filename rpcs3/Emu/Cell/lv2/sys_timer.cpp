@@ -8,7 +8,6 @@
 #include "Emu/Cell/PPUThread.h"
 #include "sys_event.h"
 #include "sys_process.h"
-#include "sys_mutex.h"
 
 #include <thread>
 
@@ -303,6 +302,7 @@ error_code sys_timer_sleep(ppu_thread& ppu, u32 sleep_time)
 error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 {
 	vm::temporary_unlock(ppu);
+
 	sys_timer.trace("sys_timer_usleep(sleep_time=0x%llx)", sleep_time);
 
 	if (sleep_time)

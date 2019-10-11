@@ -161,13 +161,7 @@ public:
 			has the same sign as the denormalized or underflowing value.
 	*/
 	bool nj = false;
-	bool is_mgs4_main_thread = false;
-	bool is_mgs4_audio_thread = false;
 
-	atomic_t<u32> last_mutex_wanted = 0;
-	atomic_t<u32> last_mutex_acquired = 0;
-	atomic_t<u64> last_acquired_mutex_pc = 0;
-	
 	u32 raddr{0}; // Reservation addr
 	u64 rtime{0};
 	u64 rdata{0}; // Reservation data
