@@ -4117,7 +4117,7 @@ s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobCha
 	for (;;)
 	{
 		size_t currIdx;
-		for (currIdx=0; currIdx<CellSpursJobChain::MAX_NUM_URGENT_CMDS; currIdx++)
+		for (currIdx=0; currIdx<CellSpursJobChain::MAX_NUM_URGENT_CMDS/2; currIdx++)
 		{
 			be_t<u64> currCmd = jobChain.urgentCmds[currIdx].load();
 			u64 cmdToStore = currCmd;
@@ -4137,7 +4137,7 @@ s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobCha
 				return CELL_OK; //success
 		}
 
-		if (currIdx >= CellSpursJobChain::MAX_NUM_URGENT_CMDS)
+		if (currIdx >= CellSpursJobChain::MAX_NUM_URGENT_CMDS/2)
 			return CELL_SPURS_JOB_ERROR_BUSY; //exausted all slots
 	}
 }
