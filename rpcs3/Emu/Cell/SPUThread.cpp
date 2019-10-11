@@ -363,6 +363,8 @@ const auto spu_putllc_tx = build_function_asm<u32(*)(u32 raddr, u64 rtime, const
 
 	// Lightened transaction: only compare and swap data
 	c.bind(next);
+	c.xor_(x86::eax, x86::eax);
+	c.jmp(fall2);
 
 	// Try to "lock" reservation
 	c.mov(x86::rax, x86::r13);
