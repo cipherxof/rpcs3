@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "sys_sync.h"
 
@@ -103,15 +103,12 @@ struct lv2_mutex final : lv2_obj
 		return true;
 	}
 
-	CellError try_unlock(u32 id, u32* origOwnerOut = nullptr)
+	CellError try_unlock(u32 id)
 	{
 		const u32 value = owner;
 
 		if (value >> 1 != id)
 		{
-			if (origOwnerOut != nullptr)
-				*origOwnerOut = value;
-
 			return CELL_EPERM;
 		}
 
