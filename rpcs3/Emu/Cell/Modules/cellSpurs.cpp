@@ -4114,10 +4114,11 @@ s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobCha
 	if (jobChain.workloadId >= 32)
 		return CELL_SPURS_JOB_ERROR_INVAL;
 
+	const size_t max_num_urgent_cmds = size_t(g_cfg.core.spurs_urgent_queue_size);
 	for (;;)
 	{
 		size_t currIdx;
-		for (currIdx=0; currIdx<CellSpursJobChain::MAX_NUM_URGENT_CMDS/2; currIdx++)
+		for (currIdx=0; currIdx<max_num_urgent_cmds; currIdx++)
 		{
 			be_t<u64> currCmd = jobChain.urgentCmds[currIdx].load();
 			u64 cmdToStore = currCmd;
@@ -4137,7 +4138,7 @@ s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobCha
 				return CELL_OK; //success
 		}
 
-		if (currIdx >= CellSpursJobChain::MAX_NUM_URGENT_CMDS/2)
+		if (currIdx >= max_num_urgent_cmds)
 			return CELL_SPURS_JOB_ERROR_BUSY; //exausted all slots
 	}
 }
