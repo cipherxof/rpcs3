@@ -71,8 +71,8 @@ error_code _sys_lwmutex_lock(ppu_thread& ppu, u32 lwmutex_id, u64 timeout)
 	bool fake_timeout = false;
 	if (timeout == 0 && (ppu.is_mgs4_main_thread || ppu.is_mgs4_audio_thread))
 	{
-		timeout = 250000;
-		fake_timeout = true;
+		//timeout = 250000;
+		//fake_timeout = true;
 	}
 
 	vm::temporary_unlock(ppu);
