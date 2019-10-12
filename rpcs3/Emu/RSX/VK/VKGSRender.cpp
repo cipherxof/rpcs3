@@ -1320,14 +1320,16 @@ void VKGSRender::end()
 					const auto border_color = vk::get_border_color(rsx::method_registers.fragment_textures[i].border_color());
 
 					// Check if non-point filtering can even be used on this format
-					bool can_sample_linear;
+					bool can_sample_linear, apply_lod_bias;
 					if (LIKELY(sampler_state->format_class == rsx::format_type::color))
 					{
 						// Most PS3-like formats can be linearly filtered without problem
 						can_sample_linear = true;
+						apply_lod_bias = true;
 					}
 					else
 					{
+						apply_lod_bias = false;
 						// Not all GPUs support linear filtering of depth formats
 						const auto vk_format = sampler_state->image_handle ? sampler_state->image_handle->image()->format() :
 							vk::get_compatible_sampler_format(m_device->get_formats_support(), sampler_state->external_subresource_desc.gcm_format);
@@ -1355,12 +1357,14 @@ void VKGSRender::end()
 					}
 					else
 					{
+						apply_lod_bias = false;
 						mip_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 					}
 
+					const f32 final_lod_bias = apply_lod_bias ? (lod_bias + float(g_cfg.video.texture_lod_bias)*0.1f) : lod_bias;
 					if (fs_sampler_handles[i] && m_textures_dirty[i])
 					{
-						if (!fs_sampler_handles[i]->matches(wrap_s, wrap_t, wrap_r, false, lod_bias, af_level, min_lod, max_lod,
+						if (!fs_sampler_handles[i]->matches(wrap_s, wrap_t, wrap_r, false, final_lod_bias, af_level, min_lod, max_lod,
 							min_filter, mag_filter, mip_mode, border_color, compare_enabled, depth_compare_mode))
 						{
 							replace = true;
@@ -1369,7 +1373,7 @@ void VKGSRender::end()
 
 					if (replace)
 					{
-						fs_sampler_handles[i] = vk::get_resource_manager()->find_sampler(*m_device, wrap_s, wrap_t, wrap_r, false, lod_bias, af_level, min_lod, max_lod,
+						fs_sampler_handles[i] = vk::get_resource_manager()->find_sampler(*m_device, wrap_s, wrap_t, wrap_r, false, final_lod_bias, af_level, min_lod, max_lod,
 							min_filter, mag_filter, mip_mode, border_color, compare_enabled, depth_compare_mode);
 					}
 				}
