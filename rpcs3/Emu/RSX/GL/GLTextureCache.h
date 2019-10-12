@@ -26,7 +26,7 @@ namespace gl
 	class blitter;
 
 	extern GLenum get_sized_internal_format(u32);
-	extern void copy_typeless(texture*, const texture*);
+	extern void copy_typeless(texture*, const texture*, const coord3u&, const coord3u&);
 	extern blitter *g_hw_blitter;
 
 	class cached_texture_section;
@@ -163,12 +163,12 @@ namespace gl
 			{
 				// Determine unpack config dynamically
 				const auto format_info = gl::get_format_type(src->get_internal_format());
-				format = static_cast<gl::texture::format>(std::get<0>(format_info));
-				type = static_cast<gl::texture::type>(std::get<1>(format_info));
+				format = static_cast<gl::texture::format>(format_info.format);
+				type = static_cast<gl::texture::type>(format_info.type);
 
 				if ((src->aspect() & gl::image_aspect::stencil) == 0)
 				{
-					pack_unpack_swap_bytes = std::get<2>(format_info);
+					pack_unpack_swap_bytes = format_info.swap_bytes;
 				}
 				else
 				{
@@ -632,11 +632,17 @@ namespace gl
 					tmp = std::make_unique<texture>(GL_TEXTURE_2D, convert_w, slice.src->height(), 1, 1, (GLenum)dst_image->get_internal_format());
 
 					src_image = tmp.get();
-					gl::copy_typeless(src_image, slice.src);
 
 					// Compute src region in dst format layout
-					src_x = u16(src_x * src_bpp) / dst_bpp;
-					src_w = u16(src_w * src_bpp) / dst_bpp;
+					const u16 src_w2 = u16(src_w * src_bpp) / dst_bpp;
+					const u16 src_x2 = u16(src_x * src_bpp) / dst_bpp;
+
+					const coord3u src_region = { { src_x, src_y, 0 }, { src_w, src_h, 1 } };
+					const coord3u dst_region = { { src_x2, src_y, 0 }, { src_w2, src_h, 1 } };
+					gl::copy_typeless(src_image, slice.src, dst_region, src_region);
+
+					src_x = src_x2;
+					src_w = src_w2;
 				}
 
 				if (src_w == slice.dst_w && src_h == slice.dst_h)
