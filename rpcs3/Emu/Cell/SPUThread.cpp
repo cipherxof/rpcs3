@@ -349,7 +349,6 @@ const auto spu_putllc_tx = build_function_asm<u32(*)(u32 raddr, u64 rtime, const
 	c.bind(fall);
 	c.sar(x86::eax, 24);
 	c.js(fail);
-	c.lock().add(x86::qword_ptr(x86::rbx), 1);
 	c.lock().bts(x86::dword_ptr(args[2], ::offset32(&spu_thread::state) - ::offset32(&spu_thread::rdata)), static_cast<u32>(cpu_flag::wait));
 
 	// Touch memory if transaction failed without RETRY flag on the first attempt
@@ -364,7 +363,18 @@ const auto spu_putllc_tx = build_function_asm<u32(*)(u32 raddr, u64 rtime, const
 
 	// Lightened transaction: only compare and swap data
 	c.bind(next);
+
+	// Try to "lock" reservation
+	c.mov(x86::rax, x86::r13);
+	c.add(x86::r13, 1);
+	c.lock().cmpxchg(x86::qword_ptr(x86::rbx), x86::r13);
+	c.jne(fail);
+
 	build_transaction_enter(c, fall2, x86::r12, 666);
+
+	// Check against PUTLLUC
+	c.cmp(x86::qword_ptr(x86::rbx), x86::r13);
+	c.jne(fail2);
 
 	if (s_tsx_avx)
 	{
@@ -848,7 +858,6 @@ const auto spu_putlluc_tx = build_function_asm<u32(*)(u32 raddr, const void* rda
 	//c.jmp(fall);
 
 	c.bind(fall);
-	c.lock().add(x86::qword_ptr(x86::rbx), 1);
 	c.lock().bts(x86::dword_ptr(args[2], ::offset32(&spu_thread::state)), static_cast<u32>(cpu_flag::wait));
 
 	// Touch memory if transaction failed without RETRY flag on the first attempt
@@ -859,9 +868,15 @@ const auto spu_putlluc_tx = build_function_asm<u32(*)(u32 raddr, const void* rda
 	c.xor_(x86::rbp, 0xf80);
 
 	Label fall2 = c.newLabel();
+	Label fail2 = c.newLabel();
 
 	// Lightened transaction
 	c.bind(next);
+
+	// Try to acquire "PUTLLUC lock"
+	c.lock().bts(x86::qword_ptr(x86::rbx), 6);
+	c.jc(fail2);
+
 	build_transaction_enter(c, fall2, x86::r12, 666);
 
 	if (s_tsx_avx)
@@ -884,8 +899,12 @@ const auto spu_putlluc_tx = build_function_asm<u32(*)(u32 raddr, const void* rda
 	}
 
 	c.xend();
-	c.lock().add(x86::qword_ptr(x86::rbx), 127);
+	c.lock().add(x86::qword_ptr(x86::rbx), 64);
 	c.mov(x86::eax, 1);
+	c.jmp(_ret);
+
+	c.bind(fail2);
+	c.xor_(x86::eax, x86::eax);
 	c.jmp(_ret);
 
 	c.bind(fall2);
@@ -1617,8 +1636,7 @@ void spu_thread::do_putlluc(const spu_mfc_cmd& args)
 		{
 			cpu_thread::suspend_all cpu_lock(this);
 
-			// Try to obtain bit 7 (+64)
-			if (!vm::reservation_acquire(addr, 128).bts(6))
+			if (true)
 			{
 				auto& data = vm::_ref<decltype(rdata)>(addr);
 				mov_rdata(data, to_write);
@@ -1629,12 +1647,7 @@ void spu_thread::do_putlluc(const spu_mfc_cmd& args)
 					mov_rdata(data, to_write);
 				}
 
-				vm::reservation_acquire(addr, 128) += 63;
-			}
-			else
-			{
-				// Give up if another PUTLLUC command took precedence
-				vm::reservation_acquire(addr, 128) -= 1;
+				vm::reservation_acquire(addr, 128) += 64;
 			}
 		}
 	}
@@ -1921,8 +1934,8 @@ bool spu_thread::process_mfc_cmd()
 
 					cpu_thread::suspend_all cpu_lock(this);
 
-					// Give up if other PUTLLC/PUTLLUC commands are in progress
-					if (!vm::reservation_acquire(addr, 128).try_dec(rtime + 1))
+					// Give up if PUTLLUC happened
+					if (vm::reservation_acquire(addr, 128) == (rtime | 1))
 					{
 						auto& data = vm::_ref<decltype(rdata)>(addr);
 
@@ -1936,6 +1949,10 @@ bool spu_thread::process_mfc_cmd()
 						{
 							vm::reservation_acquire(addr, 128) -= 1;
 						}
+					}
+					else
+					{
+						vm::reservation_acquire(addr, 128) -= 1;
 					}
 				}
 			}
