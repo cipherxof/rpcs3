@@ -62,8 +62,6 @@ void fmt_class_string<CellGemStatus>::format(std::string& out, u64 arg)
 
 struct gem_config
 {
-	atomic_t<u32> state = 0;
-
 	struct gem_color
 	{
 		float r, g, b;
@@ -110,6 +108,11 @@ struct gem_config
 	shared_mutex mtx;
 
 	Timer timer;
+
+	// 0: Uninitialized
+	// 1: Initialized, buffer provided by user
+	// > 1: Initialized, buffer allocated by cellGemInit 
+	atomic_t<u32> memory_ptr{};
 
 	// helper functions
 	bool is_controller_ready(u32 gem_num) const
@@ -191,7 +194,7 @@ static bool check_gem_num(const u32 gem_num)
  */
 static bool map_to_ds3_input(const u32 port_no, be_t<u16>& digital_buttons, be_t<u16>& analog_t)
 {
-	std::lock_guard lock(pad::g_pad_mutex);
+	std::scoped_lock lock(pad::g_pad_mutex);
 
 	const auto handler = pad::get_current_handler();
 
@@ -279,7 +282,7 @@ static bool map_to_ds3_input(const u32 port_no, be_t<u16>& digital_buttons, be_t
  */
 static bool map_ext_to_ds3_input(const u32 port_no, CellGemExtPortData& ext)
 {
-	std::lock_guard lock(pad::g_pad_mutex);
+	std::scoped_lock lock(pad::g_pad_mutex);
 
 	const auto handler = pad::get_current_handler();
 
@@ -313,7 +316,9 @@ error_code cellGemCalibrate(u32 gem_num)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -338,7 +343,9 @@ error_code cellGemClearStatusFlags(u32 gem_num, u64 mask)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -359,7 +366,7 @@ error_code cellGemConvertVideoFinish()
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -373,7 +380,7 @@ error_code cellGemConvertVideoStart(vm::cptr<void> video_frame)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -387,7 +394,9 @@ error_code cellGemEnableCameraPitchAngleCorrection(u32 enable_flag)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -403,7 +412,9 @@ error_code cellGemEnableMagnetometer(u32 gem_num, u32 enable)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -430,12 +441,19 @@ error_code cellGemEnd()
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state.compare_and_swap_test(1, 0))
+	std::scoped_lock lock(gem->mtx);
+
+	if (const u32 memaddr = gem->memory_ptr.exchange(0))
 	{
-		return CELL_GEM_ERROR_UNINITIALIZED;
+		if (memaddr != 1)
+		{
+			sys_memory_free(memaddr);
+		}
+
+		return CELL_OK;
 	}
 
-	return CELL_OK;
+	return CELL_GEM_ERROR_UNINITIALIZED;
 }
 
 error_code cellGemFilterState(u32 gem_num, u32 enable)
@@ -444,7 +462,9 @@ error_code cellGemFilterState(u32 gem_num, u32 enable)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -465,7 +485,9 @@ error_code cellGemForceRGB(u32 gem_num, float r, float g, float b)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -492,7 +514,7 @@ error_code cellGemGetAllTrackableHues(vm::ptr<u8> hues)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -511,7 +533,7 @@ error_code cellGemGetCameraState(vm::ptr<CellGemCameraState> camera_state)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -533,7 +555,7 @@ error_code cellGemGetEnvironmentLightingColor(vm::ptr<f32> r, vm::ptr<f32> g, vm
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -557,7 +579,7 @@ error_code cellGemGetHuePixels(vm::cptr<void> camera_frame, u32 hue, vm::ptr<u8>
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -576,7 +598,7 @@ error_code cellGemGetImageState(u32 gem_num, vm::ptr<CellGemImageState> image_st
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -612,7 +634,9 @@ error_code cellGemGetInertialState(u32 gem_num, u32 state_flag, u64 timestamp, v
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -643,7 +667,9 @@ error_code cellGemGetInfo(vm::ptr<CellGemInfo> info)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::shared_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -666,6 +692,11 @@ error_code cellGemGetInfo(vm::ptr<CellGemInfo> info)
 	return CELL_OK;
 }
 
+u32 GemGetMemorySize(s32 max_connect)
+{
+	return max_connect <= 2 ? 0x120000 : 0x140000;
+}
+
 error_code cellGemGetMemorySize(s32 max_connect)
 {
 	cellGem.warning("cellGemGetMemorySize(max_connect=%d)", max_connect);
@@ -675,7 +706,7 @@ error_code cellGemGetMemorySize(s32 max_connect)
 		return CELL_GEM_ERROR_INVALID_PARAMETER;
 	}
 
-	return not_an_error(max_connect <= 2 ? 0x120000 : 0x140000);
+	return not_an_error(GemGetMemorySize(max_connect));
 }
 
 error_code cellGemGetRGB(u32 gem_num, vm::ptr<float> r, vm::ptr<float> g, vm::ptr<float> b)
@@ -684,7 +715,9 @@ error_code cellGemGetRGB(u32 gem_num, vm::ptr<float> r, vm::ptr<float> g, vm::pt
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::shared_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -708,7 +741,9 @@ error_code cellGemGetRumble(u32 gem_num, vm::ptr<u8> rumble)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::shared_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -729,7 +764,9 @@ error_code cellGemGetState(u32 gem_num, u32 flag, u64 time_parameter, vm::ptr<Ce
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::shared_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -760,7 +797,9 @@ error_code cellGemGetStatusFlags(u32 gem_num, vm::ptr<u64> flags)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::shared_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -781,7 +820,9 @@ error_code cellGemGetTrackerHue(u32 gem_num, vm::ptr<u32> hue)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::shared_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -823,14 +864,29 @@ error_code cellGemInit(vm::cptr<CellGemAttribute> attribute)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!attribute || !attribute->spurs_addr || attribute->max_connect > CELL_GEM_MAX_NUM)
+	if (!attribute || !attribute->spurs_addr || !attribute->max_connect || attribute->max_connect > CELL_GEM_MAX_NUM)
 	{
 		return CELL_GEM_ERROR_INVALID_PARAMETER;
 	}
 
-	if (!gem->state.compare_and_swap_test(0, 1))
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr.compare_and_swap_test(0, 1))
 	{
 		return CELL_GEM_ERROR_ALREADY_INITIALIZED;
+	}
+
+	if (!attribute->memory_ptr)
+	{
+		vm::var<u32> addr(0);
+
+		// Decrease memory stats
+		if (sys_memory_allocate(GemGetMemorySize(attribute->max_connect), SYS_MEMORY_PAGE_SIZE_64K, +addr) != CELL_OK)
+		{
+			return CELL_GEM_ERROR_RESOURCE_ALLOCATION_FAILED;
+		}
+
+		gem->memory_ptr.release(*addr);
 	}
 
 	gem->attribute = *attribute;
@@ -852,7 +908,9 @@ error_code cellGemInvalidateCalibration(s32 gem_num)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -877,7 +935,7 @@ s32 cellGemIsTrackableHue(u32 hue)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state || hue > 359)
+	if (!gem->memory_ptr || hue > 359)
 	{
 		return false;
 	}
@@ -891,7 +949,7 @@ error_code cellGemPrepareCamera(s32 max_exposure, f32 image_quality)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -910,7 +968,7 @@ error_code cellGemPrepareVideoConvert(vm::cptr<CellGemVideoConvertAttribute> vc_
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -944,7 +1002,7 @@ error_code cellGemReadExternalPortDeviceInfo(u32 gem_num, vm::ptr<u32> ext_id, v
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -973,7 +1031,7 @@ error_code cellGemReset(u32 gem_num)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -997,7 +1055,9 @@ error_code cellGemSetRumble(u32 gem_num, u8 rumble)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -1024,7 +1084,9 @@ error_code cellGemTrackHues(vm::cptr<u32> req_hues, vm::ptr<u32> res_hues)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	std::scoped_lock lock(gem->mtx);
+
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -1063,7 +1125,7 @@ error_code cellGemUpdateFinish()
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -1089,7 +1151,7 @@ error_code cellGemUpdateStart(vm::cptr<void> camera_frame, u64 timestamp)
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
@@ -1117,7 +1179,7 @@ error_code cellGemWriteExternalPort(u32 gem_num, vm::ptr<u8[CELL_GEM_EXTERNAL_PO
 
 	const auto gem = g_fxo->get<gem_config>();
 
-	if (!gem->state)
+	if (!gem->memory_ptr)
 	{
 		return CELL_GEM_ERROR_UNINITIALIZED;
 	}
