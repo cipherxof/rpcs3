@@ -26,7 +26,7 @@ namespace gl
 	class blitter;
 
 	extern GLenum get_sized_internal_format(u32);
-	extern void copy_typeless(texture*, const texture*);
+	extern void copy_typeless(texture*, const texture*, const coord3u&, const coord3u&);
 	extern blitter *g_hw_blitter;
 
 	class cached_texture_section;
@@ -50,8 +50,7 @@ namespace gl
 		friend baseclass;
 
 		fence m_fence;
-		u32 pbo_id = 0;
-		u32 pbo_size = 0;
+		buffer pbo;
 
 		gl::viewable_image* vram_texture = nullptr;
 
@@ -66,23 +65,16 @@ namespace gl
 			const u32 vram_size = src->pitch() * src->height();
 			const u32 buffer_size = align(vram_size, 4096);
 
-			if (pbo_id)
+			if (pbo)
 			{
-				if (pbo_size >= buffer_size)
+				if (pbo.size() >= buffer_size)
 					return;
 
-				glDeleteBuffers(1, &pbo_id);
-				pbo_id = 0;
-				pbo_size = 0;
+				pbo.remove();
 			}
 
-			glGenBuffers(1, &pbo_id);
-
-			glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_id);
-			glBufferStorage(GL_PIXEL_PACK_BUFFER, buffer_size, nullptr, GL_MAP_READ_BIT);
+			pbo.create(buffer::target::pixel_pack, buffer_size, nullptr, buffer::memory_type::host_visible, GL_STREAM_READ);
 			glBindBuffer(GL_PIXEL_PACK_BUFFER, GL_NONE);
-
-			pbo_size = buffer_size;
 		}
 
 	public:
@@ -157,18 +149,18 @@ namespace gl
 			init_buffer(src);
 
 			glGetError();
-			glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_id);
+			pbo.bind(buffer::target::pixel_pack);
 
 			if (context == rsx::texture_upload_context::dma)
 			{
 				// Determine unpack config dynamically
 				const auto format_info = gl::get_format_type(src->get_internal_format());
-				format = static_cast<gl::texture::format>(std::get<0>(format_info));
-				type = static_cast<gl::texture::type>(std::get<1>(format_info));
+				format = static_cast<gl::texture::format>(format_info.format);
+				type = static_cast<gl::texture::type>(format_info.type);
 
 				if ((src->aspect() & gl::image_aspect::stencil) == 0)
 				{
-					pack_unpack_swap_bytes = std::get<2>(format_info);
+					pack_unpack_swap_bytes = format_info.swap_bytes;
 				}
 				else
 				{
@@ -179,7 +171,7 @@ namespace gl
 
 			pixel_pack_settings pack_settings;
 			pack_settings.alignment(1);
-			pack_settings.swap_bytes(pack_unpack_swap_bytes);
+			//pack_settings.swap_bytes(pack_unpack_swap_bytes);
 
 			src->copy_to(nullptr, format, type, pack_settings);
 			real_pitch = src->pitch();
@@ -276,25 +268,6 @@ namespace gl
 			dma_transfer(cmd, target_texture, {}, {}, rsx_pitch);
 		}
 
-		void fill_texture(gl::texture* tex)
-		{
-			if (!synchronized)
-			{
-				//LOG_WARNING(RSX, "Request to fill texture rejected because contents were not read");
-				return;
-			}
-
-			u32 min_width = std::min((u16)tex->width(), width);
-			u32 min_height = std::min((u16)tex->height(), height);
-
-			glBindTexture(GL_TEXTURE_2D, tex->id());
-			glPixelStorei(GL_UNPACK_SWAP_BYTES, pack_unpack_swap_bytes);
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo_id);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, min_width, min_height, (GLenum)format, (GLenum)type, nullptr);
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GL_NONE);
-		}
-
-
 		/**
 		 * Flush
 		 */
@@ -304,8 +277,9 @@ namespace gl
 
 			m_fence.wait_for_signal();
 
-			verify(HERE), (offset + size) <= pbo_size;
-			glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_id);
+			verify(HERE), (offset + size) <= pbo.size();
+			pbo.bind(buffer::target::pixel_pack);
+
 			return glMapBufferRange(GL_PIXEL_PACK_BUFFER, offset, size, GL_MAP_READ_BIT);
 		}
 
@@ -373,21 +347,19 @@ namespace gl
 		 */
 		void destroy()
 		{
-			if (!is_locked() && pbo_id == 0 && vram_texture == nullptr && m_fence.is_empty() && !managed_texture)
+			if (!is_locked() && !pbo && vram_texture == nullptr && m_fence.is_empty() && !managed_texture)
 				//Already destroyed
 				return;
 
-			if (pbo_id != 0)
+			if (pbo)
 			{
-				//Destroy pbo cache since vram texture is managed elsewhere
-				glDeleteBuffers(1, &pbo_id);
+				// Destroy pbo cache since vram texture is managed elsewhere
+				pbo.remove();
 				scaled_texture.reset();
 			}
-			managed_texture.reset();
 
+			managed_texture.reset();
 			vram_texture = nullptr;
-			pbo_id = 0;
-			pbo_size = 0;
 
 			if (!m_fence.is_empty())
 			{
@@ -632,11 +604,17 @@ namespace gl
 					tmp = std::make_unique<texture>(GL_TEXTURE_2D, convert_w, slice.src->height(), 1, 1, (GLenum)dst_image->get_internal_format());
 
 					src_image = tmp.get();
-					gl::copy_typeless(src_image, slice.src);
 
 					// Compute src region in dst format layout
-					src_x = u16(src_x * src_bpp) / dst_bpp;
-					src_w = u16(src_w * src_bpp) / dst_bpp;
+					const u16 src_w2 = u16(src_w * src_bpp) / dst_bpp;
+					const u16 src_x2 = u16(src_x * src_bpp) / dst_bpp;
+
+					const coord3u src_region = { { src_x, src_y, 0 }, { src_w, src_h, 1 } };
+					const coord3u dst_region = { { src_x2, src_y, 0 }, { src_w2, src_h, 1 } };
+					gl::copy_typeless(src_image, slice.src, dst_region, src_region);
+
+					src_x = src_x2;
+					src_w = src_w2;
 				}
 
 				if (src_w == slice.dst_w && src_h == slice.dst_h)
