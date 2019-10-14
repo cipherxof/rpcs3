@@ -67,6 +67,12 @@ enum CellSysutilLang : s32
 
 enum
 {
+	CELL_SYSUTIL_SYSTEMPARAM_NICKNAME_SIZE = 0x80,
+	CELL_SYSUTIL_SYSTEMPARAM_CURRENT_USERNAME_SIZE = 0x40
+};
+
+enum
+{
 	CELL_SYSUTIL_REQUEST_EXITGAME  = 0x0101,
 	CELL_SYSUTIL_DRAWING_BEGIN     = 0x0121,
 	CELL_SYSUTIL_DRAWING_END       = 0x0122,
@@ -141,19 +147,24 @@ enum
 	CELL_SYSUTIL_PAD_RUMBLE_ON   = 1,
 };
 
-enum
+enum CellSysCacheError : u32
 {
-	CELL_SYSCACHE_RET_OK_CLEARED      = 0,
-	CELL_SYSCACHE_RET_OK_RELAYED      = 1,
-
-	CELL_SYSCACHE_ID_SIZE             = 32,
-	CELL_SYSCACHE_PATH_MAX            = 1055,
-
 	CELL_SYSCACHE_ERROR_ACCESS_ERROR  = 0x8002bc01, // I don't think we need this
 	CELL_SYSCACHE_ERROR_INTERNAL      = 0x8002bc02, // Not really useful, if we run out of HDD space sys_fs should handle that
 
 	CELL_SYSCACHE_ERROR_PARAM         = 0x8002bc03,
 	CELL_SYSCACHE_ERROR_NOTMOUNTED    = 0x8002bc04, // We don't really need to simulate the mounting, so this is probably useless
+};
+
+enum
+{
+	CELL_SYSCACHE_ID_SIZE             = 32,
+	CELL_SYSCACHE_PATH_MAX            = 1055,
+};
+
+enum
+{
+	CELL_SYSCACHE_RET_OK_RELAYED = 1
 };
 
 enum CellSysutilBgmPlaybackStatusState
