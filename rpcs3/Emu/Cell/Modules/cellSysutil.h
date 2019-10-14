@@ -39,6 +39,11 @@ enum CellSysutilParamId: s32
 	// Strings
 	CELL_SYSUTIL_SYSTEMPARAM_ID_NICKNAME                        = 0x0113,
 	CELL_SYSUTIL_SYSTEMPARAM_ID_CURRENT_USERNAME                = 0x0131,
+	// Unknown strings
+	CELL_SYSUTIL_SYSTEMPARAM_ID_x1008                           = 0x1008,
+	CELL_SYSUTIL_SYSTEMPARAM_ID_x1011                           = 0x1011,
+	CELL_SYSUTIL_SYSTEMPARAM_ID_x1012                           = 0x1012, // Equal meaning to x1011
+	CELL_SYSUTIL_SYSTEMPARAM_ID_x1024                           = 0x1024,
 };
 
 enum CellSysutilLang : s32
