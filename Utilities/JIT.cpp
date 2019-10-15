@@ -1,4 +1,4 @@
-#include "types.h"
+﻿#include "types.h"
 #include "JIT.h"
 #include "StrFmt.h"
 #include "File.h"
@@ -264,8 +264,8 @@ void asmjit::build_transaction_abort(asmjit::X86Assembler& c, unsigned char code
 // Memory manager mutex
 shared_mutex s_mutex;
 
-// Size of virtual memory area reserved: 512 MB
-static const u64 s_memory_size = 0x20000000;
+// Size of virtual memory area reserved: default minimum 512MB
+static u64 s_memory_size = 0x20000000;
 
 // Try to reserve a portion of virtual memory in the first 2 GB address space beforehand, if possible.
 static void* const s_memory = []() -> void*
@@ -280,10 +280,31 @@ static void* const s_memory = []() -> void*
 	if (ptr != MAP_FAILED)
 		return ptr;
 #else
-	for (u64 addr = 0x10000000; addr <= 0x80000000 - s_memory_size; addr += 0x1000000)
+	u64 max_addr = 0;
+	u64 max_size = s_memory_size;
+	for (u64 addr = 0x10000000u; addr <= 0x80000000u - max_size; addr += 0x1000000u)
 	{
-		if (auto ptr = utils::memory_reserve(s_memory_size, (void*)addr))
+		for (auto curr_size = max_size; (0x80000000u-curr_size) >= addr; curr_size += 0x1000000u)
 		{
+			if (auto ptr = utils::memory_reserve(curr_size, (void*)addr))
+			{
+				if (max_addr == 0 || max_size < curr_size)
+				{
+					max_addr = addr;
+					max_size = curr_size;
+				}
+				utils::memory_release(ptr, curr_size);
+			}
+			else
+				break;
+		}
+	}
+
+	if (max_addr != 0)
+	{
+		if (auto ptr = utils::memory_reserve(max_size, (void*)max_addr))
+		{
+			s_memory_size = max_size;
 			return ptr;
 		}
 	}
