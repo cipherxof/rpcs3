@@ -1,4 +1,4 @@
-﻿#include "types.h"
+#include "types.h"
 #include "JIT.h"
 #include "StrFmt.h"
 #include "File.h"
@@ -261,227 +261,38 @@ void asmjit::build_transaction_abort(asmjit::X86Assembler& c, unsigned char code
 #include <sys/mman.h>
 #endif
 
-class LLVMSegmentAllocator
-{
-public:
-	// Size of virtual memory area reserved: default 512MB
-	static constexpr u32 DEFAULT_SEGMENT_SIZE = 0x20000000;
-
-	struct Segment
-	{
-		Segment() {}
-		Segment(void* addr, u32 size) : addr((u8*)addr), size(size) {}
-
-		u8* addr = nullptr;
-		u32 size = 0;
-		u32 used = 0;
-
-		u32 remaining() const
-		{
-			if (size > used)
-				return size - used;
-
-			return 0;
-		}
-		void* advance(u32 offset)
-		{
-			const auto prev_used = used;
-			used += offset;
-			return &addr[prev_used];
-		}
-		void* top() const { return &addr[used]; }
-	};
-
-	LLVMSegmentAllocator()
-	{
-		llvm::InitializeNativeTarget();
-		llvm::InitializeNativeTargetAsmPrinter();
-		llvm::InitializeNativeTargetAsmParser();
-		LLVMLinkInMCJIT();
-
-		// Try to reserve as much virtual memory in the first 2 GB address space beforehand, if possible.
-#ifdef MAP_32BIT
-		auto ptr = ::mmap(nullptr, DEFAULT_SEGMENT_SIZE, PROT_NONE, MAP_ANON | MAP_PRIVATE | MAP_32BIT, -1, 0);
-		if (ptr != MAP_FAILED)
-		{
-			m_curr.addr = (u8*)ptr;
-			m_curr.size = DEFAULT_SEGMENT_SIZE;
-			m_curr.used = 0;
-		}
-#else
-		Segment found_segs[16];
-		u64 start_addr = 0x10000000;
-		u32 num_segs = 0;
-		while (num_segs < 16)
-		{
-			u64 max_addr = 0;
-			u64 max_size = 0x1000000;
-			for (u64 addr = start_addr; addr <= (0x80000000u - max_size); addr += 0x1000000)
-			{
-				for (auto curr_size = max_size; (0x80000000u - curr_size) >= addr; curr_size += 0x1000000)
-				{
-					if (auto ptr = utils::memory_reserve(curr_size, (void*)addr))
-					{
-						if (max_addr == 0 || max_size < curr_size)
-						{
-							max_addr = addr;
-							max_size = curr_size;
-						}
-						utils::memory_release(ptr, curr_size);
-					}
-					else
-						break;
-				}
-			}
-
-			if (max_addr == 0)
-				break;
-
-			if (auto ptr = utils::memory_reserve(max_size, (void*)max_addr))
-				found_segs[num_segs++] = Segment(ptr, u32(max_size));
-
-			start_addr = max_addr + max_size;
-		}
-
-		if (num_segs > 0)
-		{
-			m_segs.resize(num_segs);
-			for (u32 i = 0; i < num_segs; i++)
-				m_segs[i] = found_segs[i];
-
-			return;
-		}
-#endif
-		if (auto ptr = utils::memory_reserve(DEFAULT_SEGMENT_SIZE))
-		{
-			m_curr.addr = (u8*)ptr;
-			m_curr.size = DEFAULT_SEGMENT_SIZE;
-			m_curr.used = 0;
-		}
-	}
-
-	void* allocate(u32 size)
-	{
-		if (m_curr.remaining() >= size)
-			return m_curr.advance(size);
-
-		if (reserve(size))
-			return m_curr.advance(size);
-
-		return nullptr;
-	}
-
-	bool reserve(u32 size)
-	{
-		if (size == 0)
-			return true;
-
-		store_curr();
-
-		u32 best_idx = UINT_MAX;
-		for (u32 i = 0, segs_size = (u32)m_segs.size(); i < segs_size; i++)
-		{
-			const auto seg_remaining = m_segs[i].remaining();
-			if (seg_remaining < size)
-				continue;
-
-			if (best_idx == UINT_MAX || m_segs[best_idx].remaining() > seg_remaining)
-				best_idx = i;
-		}
-
-		if (best_idx == UINT_MAX)
-		{
-			const auto size_to_reserve = (size > DEFAULT_SEGMENT_SIZE) ? ::align(size+4096, 4096) : DEFAULT_SEGMENT_SIZE;
-			if (auto ptr = utils::memory_reserve(size_to_reserve))
-			{
-				best_idx = (u32)m_segs.size();
-				m_segs.emplace_back(ptr, size_to_reserve);
-			}
-			else
-				return false;
-		}
-
-		const auto& best_seg = m_segs[best_idx];
-		if (best_seg.addr != m_curr.addr)
-			m_curr = best_seg;
-
-		return true;
-	}
-
-	Segment current_segment() const { return m_curr; }
-
-	Segment find_segment(u64 addr) const
-	{
-		for (const auto& seg: m_segs)
-		{
-			if (addr < (u64)seg.addr)
-				continue;
-
-			const auto end_addr = u64(seg.addr) + seg.size;
-			if (addr < end_addr)
-				return seg;
-		}
-
-		return Segment();
-	}
-
-	void reset()
-	{
-		if (!m_segs.size())
-		{
-			if (m_curr.addr != nullptr)
-			{
-				utils::memory_decommit(m_curr.addr, m_curr.size);
-				m_curr.used = 0;
-			}
-			return;
-		}
-
-		if (store_curr())
-			m_curr = Segment();
-
-		auto allocated_it = std::remove_if(m_segs.begin(), m_segs.end(), [](const Segment& seg) { return u64(seg.addr + seg.size) > 0x80000000u; });
-		if (allocated_it != m_segs.end())
-		{
-			for (auto it = allocated_it; it != m_segs.end(); ++it)
-				utils::memory_release(it->addr, it->size);
-
-			m_segs.erase(allocated_it, m_segs.end());
-		}
-
-		for (auto& seg : m_segs)
-		{
-			utils::memory_decommit(seg.addr, seg.size);
-			seg.used = 0;
-		}
-	}
-
-private:
-	bool store_curr()
-	{
-		if (m_curr.addr != nullptr)
-		{
-			const auto wanted_addr = m_curr.addr;
-			auto existing_it = std::find_if(m_segs.begin(), m_segs.end(), [wanted_addr](const Segment& seg) { return seg.addr == wanted_addr; });
-			if (existing_it != m_segs.end())
-				existing_it->used = m_curr.used;
-			else
-				m_segs.push_back(m_curr);
-
-			return true;
-		}
-
-		return false;
-	}
-
-	Segment m_curr;
-	std::vector<Segment> m_segs;	
-};
-
 // Memory manager mutex
-static shared_mutex s_mutex;
-// LLVM Memory allocator
-static LLVMSegmentAllocator s_alloc;
+shared_mutex s_mutex;
+
+// Size of virtual memory area reserved: 512 MB
+static const u64 s_memory_size = 0x20000000;
+
+// Try to reserve a portion of virtual memory in the first 2 GB address space beforehand, if possible.
+static void* const s_memory = []() -> void*
+{
+	llvm::InitializeNativeTarget();
+	llvm::InitializeNativeTargetAsmPrinter();
+	llvm::InitializeNativeTargetAsmParser();
+	LLVMLinkInMCJIT();
+
+#ifdef MAP_32BIT
+	auto ptr = ::mmap(nullptr, s_memory_size, PROT_NONE, MAP_ANON | MAP_PRIVATE | MAP_32BIT, -1, 0);
+	if (ptr != MAP_FAILED)
+		return ptr;
+#else
+	for (u64 addr = 0x10000000; addr <= 0x80000000 - s_memory_size; addr += 0x1000000)
+	{
+		if (auto ptr = utils::memory_reserve(s_memory_size, (void*)addr))
+		{
+			return ptr;
+		}
+	}
+#endif
+
+	return utils::memory_reserve(s_memory_size);
+}();
+
+static void* s_next = s_memory;
 
 #ifdef _WIN32
 static std::deque<std::vector<RUNTIME_FUNCTION>> s_unwater;
@@ -512,7 +323,9 @@ extern void jit_finalize()
 	s_unfire.clear();
 #endif
 
-	s_alloc.reset();
+	utils::memory_decommit(s_memory, s_memory_size);
+
+	s_next = s_memory;
 }
 
 // Helper class
@@ -555,25 +368,17 @@ struct MemoryManager : llvm::RTDyldMemoryManager
 		}
 
 		// Verify address for small code model
-		const auto current_segment = s_alloc.current_segment();
-		const s64 addr_diff = addr - u64(current_segment.addr);
-		if (addr_diff < INT_MIN || addr_diff > INT_MAX)
+		if ((u64)s_memory > 0x80000000 - s_memory_size ? (u64)addr - (u64)s_memory >= s_memory_size : addr >= 0x80000000)
 		{
 			// Lock memory manager
 			std::lock_guard lock(s_mutex);
 
 			// Allocate memory for trampolines
-			if (m_tramps)
-			{
-				const s64 tramps_diff = u64(m_tramps) - u64(current_segment.addr);
-				if (tramps_diff < INT_MIN || tramps_diff > INT_MAX) 
-					m_tramps = nullptr; //previously allocated trampoline section too far away now
-			}
-
 			if (!m_tramps)
 			{
-				m_tramps = reinterpret_cast<decltype(m_tramps)>(s_alloc.allocate(4096));
-				utils::memory_commit(m_tramps, 4096, utils::protection::wx);
+				m_tramps = reinterpret_cast<decltype(m_tramps)>(s_next);
+				utils::memory_commit(s_next, 4096, utils::protection::wx);
+				s_next = (u8*)((u64)s_next + 4096);
 			}
 
 			// Create a trampoline
@@ -599,57 +404,36 @@ struct MemoryManager : llvm::RTDyldMemoryManager
 		return {addr, llvm::JITSymbolFlags::Exported};
 	}
 
-	bool needsToReserveAllocationSpace() override { return true; }
-	void reserveAllocationSpace(uintptr_t CodeSize, uint32_t CodeAlign, uintptr_t RODataSize, uint32_t RODataAlign, uintptr_t RWDataSize, uint32_t RWDataAlign) override
+	u8* allocateCodeSection(std::uintptr_t size, uint align, uint sec_id, llvm::StringRef sec_name) override
 	{
-		const u32 wanted_code_size = ::align(u32(CodeSize), std::min(4096u, CodeAlign));
-		const u32 wanted_rodata_size = ::align(u32(RODataSize), std::min(4096u, RODataAlign));
-		const u32 wanted_rwdata_size = ::align(u32(RWDataSize), std::min(4096u, RWDataAlign));
-
 		// Lock memory manager
 		std::lock_guard lock(s_mutex);
 
-		// Setup segment for current module if needed
-		s_alloc.reserve(wanted_code_size + wanted_rodata_size + wanted_rwdata_size);
-	}
+		// Simple allocation
+		const u64 next = ::align((u64)s_next + size, 4096);
 
-	u8* allocateCodeSection(std::uintptr_t size, uint align, uint sec_id, llvm::StringRef sec_name) override
-	{
-		void* ptr = nullptr;
-		const u32 wanted_size = ::align(u32(size), 4096);
-		{
-			// Lock memory manager
-			std::lock_guard lock(s_mutex);
-
-			// Simple allocation
-			ptr = s_alloc.allocate(wanted_size);
-		}
-
-		if (ptr == nullptr)
+		if (next > (u64)s_memory + s_memory_size)
 		{
 			LOG_FATAL(GENERAL, "LLVM: Out of memory (size=0x%llx, aligned 0x%x)", size, align);
 			return nullptr;
 		}
-		utils::memory_commit(ptr, size, utils::protection::wx);
-		m_code_addr = (u8*)ptr;
 
-		LOG_NOTICE(GENERAL, "LLVM: Code section %u '%s' allocated -> %p (size=0x%llx, aligned 0x%x)", sec_id, sec_name.data(), ptr, size, align);
-		return (u8*)ptr;
+		utils::memory_commit(s_next, size, utils::protection::wx);
+		m_code_addr = (u8*)s_next;
+
+		LOG_NOTICE(GENERAL, "LLVM: Code section %u '%s' allocated -> %p (size=0x%llx, aligned 0x%x)", sec_id, sec_name.data(), s_next, size, align);
+		return (u8*)std::exchange(s_next, (void*)next);
 	}
 
 	u8* allocateDataSection(std::uintptr_t size, uint align, uint sec_id, llvm::StringRef sec_name, bool is_ro) override
 	{
-		void* ptr = nullptr;
-		const u32 wanted_size = ::align(u32(size), 4096);
-		{
-			// Lock memory manager
-			std::lock_guard lock(s_mutex);
+		// Lock memory manager
+		std::lock_guard lock(s_mutex);
 
-			// Simple allocation
-			ptr = s_alloc.allocate(wanted_size);
-		}
+		// Simple allocation
+		const u64 next = ::align((u64)s_next + size, 4096);
 
-		if (ptr == nullptr)
+		if (next > (u64)s_memory + s_memory_size)
 		{
 			LOG_FATAL(GENERAL, "LLVM: Out of memory (size=0x%llx, aligned 0x%x)", size, align);
 			return nullptr;
@@ -659,10 +443,10 @@ struct MemoryManager : llvm::RTDyldMemoryManager
 		{
 		}
 
-		utils::memory_commit(ptr, size);
+		utils::memory_commit(s_next, size);
 
-		LOG_NOTICE(GENERAL, "LLVM: Data section %u '%s' allocated -> %p (size=0x%llx, aligned 0x%x, %s)", sec_id, sec_name.data(), ptr, size, align, is_ro ? "ro" : "rw");
-		return (u8*)ptr;
+		LOG_NOTICE(GENERAL, "LLVM: Data section %u '%s' allocated -> %p (size=0x%llx, aligned 0x%x, %s)", sec_id, sec_name.data(), s_next, size, align, is_ro ? "ro" : "rw");
+		return (u8*)std::exchange(s_next, (void*)next);
 	}
 
 	bool finalizeMemory(std::string* = nullptr) override
@@ -688,9 +472,8 @@ struct MemoryManager : llvm::RTDyldMemoryManager
 		// Lock memory manager
 		std::lock_guard lock(s_mutex);
 
-		// Use top of memory as a BASE, compute the difference
-		const auto segment_top = u64(s_alloc.current_segment().top());
-		const u64 unwind_diff = (u64)addr - segment_top;
+		// Use s_memory as a BASE, compute the difference
+		const u64 unwind_diff = (u64)addr - (u64)s_memory;
 
 		// Fix RUNTIME_FUNCTION records (.pdata section)
 		auto pdata = std::move(s_unwater.front());
@@ -702,7 +485,7 @@ struct MemoryManager : llvm::RTDyldMemoryManager
 		}
 
 		// Register .xdata UNWIND_INFO structs
-		if (!RtlAddFunctionTable(pdata.data(), (DWORD)pdata.size(), segment_top))
+		if (!RtlAddFunctionTable(pdata.data(), (DWORD)pdata.size(), (u64)s_memory))
 		{
 			LOG_ERROR(GENERAL, "RtlAddFunctionTable() failed! Error %u", GetLastError());
 		}
@@ -845,7 +628,7 @@ struct EventListener : llvm::JITEventListener
 				std::lock_guard lock(s_mutex);
 
 				// Use s_memory as a BASE, compute the difference
-				const u64 code_diff = u64(m_mem.m_code_addr) - u64(s_alloc.current_segment().top());
+				const u64 code_diff = (u64)m_mem.m_code_addr - (u64)s_memory;
 
 				// Fix RUNTIME_FUNCTION records (.pdata section)
 				for (auto& rf : rfs)
