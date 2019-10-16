@@ -267,31 +267,6 @@ public:
 	// Size of virtual memory area reserved: default 512MB
 	static constexpr u32 DEFAULT_SEGMENT_SIZE = 0x20000000;
 
-	struct Segment
-	{
-		Segment() {}
-		Segment(void* addr, u32 size) : addr((u8*)addr), size(size) {}
-
-		u8* addr = nullptr;
-		u32 size = 0;
-		u32 used = 0;
-
-		u32 remaining() const
-		{
-			if (size > used)
-				return size - used;
-
-			return 0;
-		}
-		void* advance(u32 offset)
-		{
-			const auto prev_used = used;
-			used += offset;
-			return &addr[prev_used];
-		}
-		void* top() const { return &addr[used]; }
-	};
-
 	LLVMSegmentAllocator()
 	{
 		llvm::InitializeNativeTarget();
@@ -414,9 +389,8 @@ public:
 		return true;
 	}
 
-	Segment current_segment() const { return m_curr; }
-
-	Segment find_segment(u64 addr) const
+	std::pair<u64, u32> current_segment() const { return std::make_pair(u64(m_curr.addr), m_curr.size); }
+	std::pair<u64, u32> find_segment(u64 addr) const
 	{
 		for (const auto& seg: m_segs)
 		{
@@ -425,10 +399,10 @@ public:
 
 			const auto end_addr = u64(seg.addr) + seg.size;
 			if (addr < end_addr)
-				return seg;
+				return std::make_pair(u64(seg.addr), seg.size);
 		}
 
-		return Segment();
+		return std::make_pair(0, 0);
 	}
 
 	void reset()
@@ -480,6 +454,30 @@ private:
 		return false;
 	}
 
+	struct Segment
+	{
+		Segment() {}
+		Segment(void* addr, u32 size) : addr((u8*)addr), size(size) {}
+
+		u8* addr = nullptr;
+		u32 size = 0;
+		u32 used = 0;
+
+		u32 remaining() const
+		{
+			if (size > used)
+				return size - used;
+
+			return 0;
+		}
+		void* advance(u32 offset)
+		{
+			const auto prev_used = used;
+			used += offset;
+			return &addr[prev_used];
+		}
+	};
+
 	Segment m_curr;
 	std::vector<Segment> m_segs;	
 };
@@ -490,7 +488,7 @@ static shared_mutex s_mutex;
 static LLVMSegmentAllocator s_alloc;
 
 #ifdef _WIN32
-static std::deque<std::vector<RUNTIME_FUNCTION>> s_unwater;
+static std::deque<std::pair<u64, std::vector<RUNTIME_FUNCTION>>> s_unwater;
 static std::vector<std::vector<RUNTIME_FUNCTION>> s_unwind; // .pdata
 #else
 static std::deque<std::pair<u8*, std::size_t>> s_unfire;
@@ -561,8 +559,8 @@ struct MemoryManager : llvm::RTDyldMemoryManager
 		}
 
 		// Verify address for small code model
-		const auto current_segment = s_alloc.current_segment();
-		const s64 addr_diff = addr - u64(current_segment.addr);
+		const u64 code_start = u64(m_code_addr);
+		const s64 addr_diff = addr - code_start;
 		if (addr_diff < INT_MIN || addr_diff > INT_MAX)
 		{
 			// Lock memory manager
@@ -571,7 +569,7 @@ struct MemoryManager : llvm::RTDyldMemoryManager
 			// Allocate memory for trampolines
 			if (m_tramps)
 			{
-				const s64 tramps_diff = u64(m_tramps) - u64(current_segment.addr);
+				const s64 tramps_diff = u64(m_tramps) - code_start;
 				if (tramps_diff < INT_MIN || tramps_diff > INT_MAX) 
 					m_tramps = nullptr; //previously allocated trampoline section too far away now
 			}
@@ -693,15 +691,15 @@ struct MemoryManager : llvm::RTDyldMemoryManager
 #ifdef _WIN32
 		// Lock memory manager
 		std::lock_guard lock(s_mutex);
-
-		// Use current memory segment as a BASE, compute the difference
-		const auto segment_start = u64(s_alloc.current_segment().addr);
-		const u64 unwind_diff = (u64)addr - segment_start;
-
 		// Fix RUNTIME_FUNCTION records (.pdata section)
-		auto pdata = std::move(s_unwater.front());
+		decltype(s_unwater)::value_type pdata_entry = std::move(s_unwater.front());
 		s_unwater.pop_front();
 
+		// Use given memory segment as a BASE, compute the difference
+		const u64 segment_start = pdata_entry.first;
+		const u64 unwind_diff = (u64)addr - segment_start;
+
+		auto& pdata = pdata_entry.second;
 		for (auto& rf : pdata)
 		{
 			rf.UnwindData += static_cast<DWORD>(unwind_diff);
@@ -851,7 +849,8 @@ struct EventListener : llvm::JITEventListener
 				std::lock_guard lock(s_mutex);
 
 				// Use current memory segment as a BASE, compute the difference
-				const u64 code_diff = u64(m_mem.m_code_addr) - u64(s_alloc.current_segment().addr);
+				const u64 segment_start = s_alloc.current_segment().first;
+				const u64 code_diff = u64(m_mem.m_code_addr) - segment_start;
 
 				// Fix RUNTIME_FUNCTION records (.pdata section)
 				for (auto& rf : rfs)
@@ -860,7 +859,7 @@ struct EventListener : llvm::JITEventListener
 					rf.EndAddress   += static_cast<DWORD>(code_diff);
 				}
 
-				s_unwater.emplace_back(std::move(rfs));
+				s_unwater.emplace_back(segment_start, std::move(rfs));
 			}
 		}
 #endif
