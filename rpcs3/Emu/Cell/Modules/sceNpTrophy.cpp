@@ -231,12 +231,12 @@ error_code sceNpTrophyCreateContext(vm::ptr<u32> context, vm::cptr<SceNpCommunic
 		return SCE_NP_TROPHY_ERROR_NOT_INITIALIZED;
 	}
 
-	if (!context || !commId)
+	if (!context || !commId || !commSign)
 	{
 		return SCE_NP_TROPHY_ERROR_INVALID_ARGUMENT;
 	}
 
-	if (options > 0)
+	if (options > SCE_NP_TROPHY_OPTIONS_CREATE_CONTEXT_READ_ONLY)
 	{
 		return SCE_NP_TROPHY_ERROR_NOT_SUPPORTED;
 	}
@@ -252,8 +252,8 @@ error_code sceNpTrophyCreateContext(vm::ptr<u32> context, vm::cptr<SceNpCommunic
 	sceNpTrophy.warning("sceNpTrophyCreateContext term=%s data=%s num=%d", commId->term, commId->data, commId->num);
 	if (commId->term)
 	{
-		char trimchar[10] = { 0 };
-		memcpy(trimchar, commId->data, sizeof(trimchar) - 1);
+		char trimchar[10];
+		strcpy_trunc(trimchar, commId->data);
 		deleteTerminateChar(trimchar, commId->term);
 		name = fmt::format("%s_%02d", trimchar, commId->num);
 	}
@@ -339,6 +339,7 @@ error_code sceNpTrophyRegisterContext(ppu_thread& ppu, u32 context, u32 handle, 
 	TRPLoader trp(ctxt->trp_stream);
 	if (!trp.LoadHeader())
 	{
+		sceNpTrophy.error("sceNpTrophyRegisterContext(): Failed to load trophy config header");
 		return SCE_NP_TROPHY_ERROR_ILLEGAL_UPDATE;
 	}
 
@@ -361,6 +362,7 @@ error_code sceNpTrophyRegisterContext(ppu_thread& ppu, u32 context, u32 handle, 
 	}
 	else if (!trp.ContainsEntry("TROPCONF.SFM"))
 	{
+		sceNpTrophy.error("sceNpTrophyRegisterContext(): Invalid/Incomplete trophy config"); 
 		return SCE_NP_TROPHY_ERROR_ILLEGAL_UPDATE;
 	}
 
@@ -377,6 +379,7 @@ error_code sceNpTrophyRegisterContext(ppu_thread& ppu, u32 context, u32 handle, 
 	std::string trophyPath = "/dev_hdd0/home/" + Emu.GetUsr() + "/trophy/" + ctxt->trp_name;
 	if (!trp.Install(trophyPath))
 	{
+		sceNpTrophy.error("sceNpTrophyRegisterContext(): Failed to install trophy context '%s' (%s)", trophyPath, fs::g_tls_error); 
 		return SCE_NP_TROPHY_ERROR_ILLEGAL_UPDATE;
 	}
 

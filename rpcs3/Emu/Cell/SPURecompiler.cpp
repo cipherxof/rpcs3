@@ -137,6 +137,16 @@ DECLARE(spu_runtime::tr_all) = []
 	std::memcpy(raw, &r32, 4);
 	raw += 4;
 
+	// Update block_hash (set zero): mov [r13 + spu_thread::m_block_hash], 0
+	*raw++ = 0x49;
+	*raw++ = 0xc7;
+	*raw++ = 0x45;
+	*raw++ = ::narrow<s8>(::offset32(&spu_thread::block_hash));
+	*raw++ = 0x00;
+	*raw++ = 0x00;
+	*raw++ = 0x00;
+	*raw++ = 0x00;
+
 	// jmp [rdx + rax * 8]
 	*raw++ = 0xff;
 	*raw++ = 0x24;
@@ -3400,7 +3410,7 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 		// 1. Thread context
 		// 2. Local storage pointer
 		// 3.
-#ifdef _WIN32
+#if 0
 		const auto chunk_type = get_ftype<u8*, u8*, u8*, u32>();
 #else
 		const auto chunk_type = get_ftype<void, u8*, u8*, u32>();
@@ -3414,7 +3424,7 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 		result->setLinkage(llvm::GlobalValue::InternalLinkage);
 		result->addAttribute(1, llvm::Attribute::NoAlias);
 		result->addAttribute(2, llvm::Attribute::NoAlias);
-#ifndef _WIN32
+#if 1
 		result->setCallingConv(llvm::CallingConv::GHC);
 #endif
 
@@ -3438,7 +3448,7 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 				fn->setLinkage(llvm::GlobalValue::InternalLinkage);
 				fn->addAttribute(1, llvm::Attribute::NoAlias);
 				fn->addAttribute(2, llvm::Attribute::NoAlias);
-#ifndef _WIN32
+#if 1
 				fn->setCallingConv(llvm::CallingConv::GHC);
 #endif
 				empl.first->second.fn = fn;
@@ -4257,6 +4267,10 @@ public:
 
 			m_hash.clear();
 			fmt::append(m_hash, "spu-0x%05x-%s", func[0], fmt::base57(output));
+
+			be_t<u64> hash_start;
+			std::memcpy(&hash_start, output, sizeof(hash_start));
+			m_hash_start = hash_start;
 		}
 
 		if (g_fxo->get<spu_cache>())
@@ -4284,7 +4298,7 @@ public:
 
 		// Create LLVM module
 		std::unique_ptr<Module> module = std::make_unique<Module>(m_hash + ".obj", m_context);
-		module->setTargetTriple(Triple::normalize(sys::getProcessTriple()));
+		module->setTargetTriple(Triple::normalize("x86_64-unknown-linux-gnu"));
 		module->setDataLayout(m_jit.get_engine().getTargetMachine()->createDataLayout());
 		m_module = module.get();
 
@@ -4317,6 +4331,10 @@ public:
 		// Emit code check
 		u32 check_iterations = 0;
 		m_ir->SetInsertPoint(label_test);
+
+		// Set block hash for profiling (if enabled)
+		if (g_cfg.core.spu_prof && g_cfg.core.spu_verification)
+			m_ir->CreateStore(m_ir->getInt64((m_hash_start & -65536)), spu_ptr<u64>(&spu_thread::block_hash), true);
 
 		if (!g_cfg.core.spu_verification)
 		{
@@ -4433,6 +4451,7 @@ public:
 
 		const auto dispatcher = llvm::cast<llvm::Function>(m_module->getOrInsertFunction("spu_dispatcher", main_func->getType()).getCallee());
 		m_engine->addGlobalMapping("spu_dispatcher", reinterpret_cast<u64>(spu_runtime::tr_all));
+		dispatcher->setCallingConv(main_func->getCallingConv());
 
 		// Proceed to the next code
 		if (entry_chunk->chunk->getReturnType() != get_type<void>())
@@ -4507,6 +4526,11 @@ public:
 			// Initialize function info
 			m_entry = m_function_queue[fi];
 			set_function(m_functions[m_entry].chunk);
+
+			// Set block hash for profiling (if enabled)
+			if (g_cfg.core.spu_prof)
+				m_ir->CreateStore(m_ir->getInt64((m_hash_start & -65536) | (m_entry >> 2)), spu_ptr<u64>(&spu_thread::block_hash), true);
+
 			m_finfo = &m_functions[m_entry];
 			m_ir->CreateBr(add_block(m_entry));
 
@@ -5864,7 +5888,11 @@ public:
 					else
 					{
 						// TODO
-						m_ir->CreateCall(get_intrinsic<u8*, u8*, u32>(llvm::Intrinsic::memcpy), {dst, src, zext<u32>(size).eval(m_ir), m_ir->getTrue()});
+						auto spu_memcpy = [](u8* dst, const u8* src, u32 size)
+						{
+							std::memcpy(dst, src, size);
+						};
+						call("spu_memcpy", +spu_memcpy, dst, src, zext<u32>(size).eval(m_ir));
 					}
 
 					m_ir->CreateBr(next);
