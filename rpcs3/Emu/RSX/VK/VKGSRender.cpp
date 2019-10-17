@@ -1346,16 +1346,37 @@ void VKGSRender::end()
 						mip_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 					}
 
-					if (sampler_state->upload_context == rsx::texture_upload_context::shader_read &&
-						rsx::method_registers.fragment_textures[i].get_exact_mipmap_count() > 1)
+					if (rsx::method_registers.fragment_textures[i].get_exact_mipmap_count() > 1)
 					{
-						min_lod = (float)(rsx::method_registers.fragment_textures[i].min_lod() >> 8);
-						max_lod = (float)(rsx::method_registers.fragment_textures[i].max_lod() >> 8);
+						min_lod = rsx::method_registers.fragment_textures[i].min_lod();
+						max_lod = rsx::method_registers.fragment_textures[i].max_lod();
 						lod_bias = rsx::method_registers.fragment_textures[i].bias();
-					}
-					else
-					{
-						mip_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+						f32 actual_mipmaps;
+						if (sampler_state->upload_context == rsx::texture_upload_context::shader_read)
+						{
+							actual_mipmaps = (f32)rsx::method_registers.fragment_textures[i].get_exact_mipmap_count();
+						}
+						else if (sampler_state->external_subresource_desc.op == rsx::deferred_request_command::mipmap_gather)
+						{
+							// Clamp min and max lod
+							actual_mipmaps = (f32)sampler_state->external_subresource_desc.sections_to_copy.size();
+						}
+						else
+						{
+							actual_mipmaps = 1.f;
+						}
+
+						if (actual_mipmaps > 1.f)
+						{
+							min_lod = std::min(min_lod, actual_mipmaps - 1.f);
+							max_lod = std::min(max_lod, actual_mipmaps - 1.f);
+						}
+						else
+						{
+							min_lod = max_lod = lod_bias = 0.f;
+							mip_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+						}
 					}
 
 					if (fs_sampler_handles[i] && m_textures_dirty[i])
@@ -1404,8 +1425,8 @@ void VKGSRender::end()
 
 					bool replace = !vs_sampler_handles[i];
 					const VkBool32 unnormalized_coords = !!(rsx::method_registers.vertex_textures[i].format() & CELL_GCM_TEXTURE_UN);
-					const auto min_lod = (f32)rsx::method_registers.vertex_textures[i].min_lod();
-					const auto max_lod = (f32)rsx::method_registers.vertex_textures[i].max_lod();
+					const auto min_lod = rsx::method_registers.vertex_textures[i].min_lod();
+					const auto max_lod = rsx::method_registers.vertex_textures[i].max_lod();
 					const auto border_color = vk::get_border_color(rsx::method_registers.vertex_textures[i].border_color());
 
 					if (vs_sampler_handles[i])
