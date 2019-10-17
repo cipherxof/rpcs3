@@ -861,8 +861,8 @@ namespace rsx
 			const blit_engine::transfer_interpolator in_inter = method_registers.blit_engine_input_inter();
 			rsx::blit_engine::transfer_source_format src_color_format = method_registers.blit_engine_src_color_format();
 
-			const f32 scale_x = method_registers.blit_engine_ds_dx();
-			const f32 scale_y = method_registers.blit_engine_dt_dy();
+			const f64 scale_x = method_registers.blit_engine_ds_dx();
+			const f64 scale_y = method_registers.blit_engine_dt_dy();
 
 			// NOTE: Do not round these value up!
 			// Sub-pixel offsets are used to signify pixel centers and do not mean to read from the next block (fill convention)
@@ -952,7 +952,7 @@ namespace rsx
 
 			if (UNLIKELY(in_x == 1 || in_y == 1))
 			{
-				const bool is_graphics_op = scale_x < 0.f || scale_y < 0.f || in_bpp != out_bpp || !rsx::fcmp(scale_x, 1.f) || !rsx::fcmp(scale_y, 1.f);
+				const bool is_graphics_op = scale_x < 0. || scale_y < 0. || in_bpp != out_bpp || !rsx::fcmp(scale_x, 1.) || !rsx::fcmp(scale_y, 1.);
 				if (!is_graphics_op)
 				{
 					// No scaling factor, so size in src == size in dst
@@ -1007,7 +1007,7 @@ namespace rsx
 
 			if (convert_w == 0 || convert_h == 0)
 			{
-				LOG_ERROR(RSX, "NV3089_IMAGE_IN: Invalid dimensions or scaling factor. Request ignored (ds_dx=%f, dt_dy=%f)",
+				LOG_ERROR(RSX, "NV3089_IMAGE_IN: Invalid dimensions or scaling factor. Request ignored (ds_dx=%g, dt_dy=%g)",
 					method_registers.blit_engine_ds_dx(), method_registers.blit_engine_dt_dy());
 				return;
 			}
@@ -1091,8 +1091,8 @@ namespace rsx
 				clip_x > 0 || clip_y > 0 ||
 				convert_w != out_w || convert_h != out_h;
 
-			const bool need_convert = out_format != in_format || !rsx::fcmp(fabsf(scale_x), 1.f) || !rsx::fcmp(fabsf(scale_y), 1.f);
-			const u32  slice_h = std::ceil(f32(clip_h + clip_y) / scale_y);
+			const bool need_convert = out_format != in_format || !rsx::fcmp(fabs(scale_x), 1.) || !rsx::fcmp(fabs(scale_y), 1.);
+			const u32  slice_h = std::ceil(f64(clip_h + clip_y) / scale_y);
 
 			if (method_registers.blit_engine_context_surface() != blit_engine::context_surface::swizzle2d)
 			{
