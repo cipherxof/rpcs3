@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "Emu/System.h"
 #include "Emu/IdManager.h"
 #include "Emu/Cell/PPUModule.h"
@@ -350,8 +350,8 @@ namespace _spurs
 //s32 cellSpursGetJobPipelineInfo();
 //s32 cellSpursJobSetMaxGrab();
 //s32 cellSpursJobHeaderSetJobbin2Param();
-//s32 cellSpursAddUrgentCommand();
-//s32 cellSpursAddUrgentCall();
+s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChainVm, u64 newCmd);
+s32 cellSpursAddUrgentCall(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChainVm, vm::ptr<u64> commandListVm);
 
 //----------------------------------------------------------------------------
 // SPURS utility functions
@@ -4102,16 +4102,55 @@ s32 cellSpursJobHeaderSetJobbin2Param()
 	return CELL_OK;
 }
 
-s32 cellSpursAddUrgentCommand()
+s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChainVm, u64 newCmd)
 {
-	UNIMPLEMENTED_FUNC(cellSpurs);
-	return CELL_OK;
+	if (!jobChainVm)
+		return CELL_SPURS_JOB_ERROR_NULL_POINTER;
+
+	if (!jobChainVm.aligned(128))
+		return CELL_SPURS_JOB_ERROR_ALIGN;
+
+	CellSpursJobChain& jobChain = *jobChainVm; 
+	if (jobChain.workloadId >= 32)
+		return CELL_SPURS_JOB_ERROR_INVAL;
+
+	for (;;)
+	{
+		size_t currIdx;
+		for (currIdx=0; currIdx<CellSpursJobChain::MAX_NUM_URGENT_CMDS; currIdx++)
+		{
+			be_t<u64> currCmd = jobChain.urgentCmds[currIdx].load();
+			u64 cmdToStore = currCmd;
+			bool foundEmptySlot = false;
+			if (currCmd == 0)
+			{
+				if (currIdx != 0 && jobChain.urgentCmds[currIdx-1].load() == 0)
+					break; //restart search, someone emptied out the previous one
+
+				foundEmptySlot = true;
+				cmdToStore = newCmd;
+			}
+			if (!jobChain.urgentCmds[currIdx].compare_exchange(currCmd, cmdToStore))
+				break; //someone changed this one, restart search
+
+			if (foundEmptySlot)
+				return CELL_OK; //success
+		}
+
+		if (currIdx >= CellSpursJobChain::MAX_NUM_URGENT_CMDS)
+			return CELL_SPURS_JOB_ERROR_BUSY; //exausted all slots
+	}
 }
 
-s32 cellSpursAddUrgentCall()
+s32 cellSpursAddUrgentCall(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChainVm, vm::ptr<u64> commandListVm)
 {
-	UNIMPLEMENTED_FUNC(cellSpurs);
-	return CELL_OK;
+	if (!jobChainVm)
+		return CELL_SPURS_JOB_ERROR_NULL_POINTER;
+
+	if (!commandListVm.aligned(8))
+		return CELL_SPURS_JOB_ERROR_ALIGN;
+
+	return cellSpursAddUrgentCommand(ppu, jobChainVm, (commandListVm.addr() & 0xFFFFFFF8u) | 4);
 }
 
 s32 cellSpursBarrierInitialize()
@@ -4286,8 +4325,8 @@ DECLARE(ppu_module_manager::cellSpurs)("cellSpurs", []()
 	REG_FUNC(cellSpurs, cellSpursJobHeaderSetJobbin2Param);
 
 	REG_FUNC(cellSpurs, cellSpursWakeUp);
-	REG_FUNC(cellSpurs, cellSpursAddUrgentCommand);
-	REG_FUNC(cellSpurs, cellSpursAddUrgentCall);
+	REG_FUNC(cellSpurs, cellSpursAddUrgentCommand).flag(MFF_PERFECT);
+	REG_FUNC(cellSpurs, cellSpursAddUrgentCall).flag(MFF_PERFECT);
 
 	REG_FUNC(cellSpurs, cellSpursBarrierInitialize);
 	REG_FUNC(cellSpurs, cellSpursBarrierGetTasksetAddress);

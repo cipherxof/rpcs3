@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "cellSync.h"
 
@@ -838,6 +838,25 @@ struct alignas(16) CellSpursTaskBinInfo
 	be_t<u32> reserved;
 	CellSpursTaskLsPattern lsPattern;
 };
+
+struct alignas(16) CellSpursJobChain
+{
+	static constexpr size_t MAX_NUM_URGENT_CMDS = 4;
+
+	u8 unk1[0x2C];                                    //	0x0
+	u8 val2C;                                         //	0x2C
+	u8 val2D;                                         //	0x2D
+	u8 val2E;                                         //	0x2E
+	u8 val2F;                                         //	0x2F
+	atomic_be_t<u64> urgentCmds[MAX_NUM_URGENT_CMDS]; //	0x30
+	u8 unk2[0x24];                                    //	0x50
+	be_t<u32> workloadId;                             //	0x74
+	vm::bptr<CellSpurs> spurs;                        //	0x78
+	u8 unk3[0x94];                                    //	0x7C
+	//	0x110
+};
+CHECK_SIZE(CellSpursJobChain, 0x110);
+// CHECK_ALIGN(CellSpursJobChain, 128);
 
 // The SPURS kernel context. This resides at 0x100 of the LS.
 struct SpursKernelContext
