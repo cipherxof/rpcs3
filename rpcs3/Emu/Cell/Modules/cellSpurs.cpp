@@ -4114,7 +4114,7 @@ s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobCha
 	if (jobChain.workloadId >= 32)
 		return CELL_SPURS_JOB_ERROR_INVAL;
 
-	const size_t max_num_urgent_cmds = size_t(g_cfg.core.spurs_urgent_queue_size);
+	const size_t max_num_urgent_cmds = std::min(size_t(g_cfg.core.spurs_urgent_queue_size), CellSpursJobChain::MAX_NUM_URGENT_CMDS);
 	for (;;)
 	{
 		size_t currIdx;
@@ -4326,8 +4326,8 @@ DECLARE(ppu_module_manager::cellSpurs)("cellSpurs", []()
 	REG_FUNC(cellSpurs, cellSpursJobHeaderSetJobbin2Param);
 
 	REG_FUNC(cellSpurs, cellSpursWakeUp);
-	REG_FUNC(cellSpurs, cellSpursAddUrgentCommand).flag(MFF_FORCED_HLE);
-	REG_FUNC(cellSpurs, cellSpursAddUrgentCall).flag(MFF_FORCED_HLE);
+	REG_FUNC(cellSpurs, cellSpursAddUrgentCommand).flag(MFF_PERFECT);
+	REG_FUNC(cellSpurs, cellSpursAddUrgentCall).flag(MFF_PERFECT);
 
 	REG_FUNC(cellSpurs, cellSpursBarrierInitialize);
 	REG_FUNC(cellSpurs, cellSpursBarrierGetTasksetAddress);
