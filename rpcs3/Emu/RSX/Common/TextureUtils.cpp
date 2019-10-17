@@ -13,7 +13,7 @@ namespace rsx
 		// Only possible when doing RTT->RTT transfer with non-base-type formats like WZYX16/32
 		if (src_is_typeless && dst_is_typeless && src_gcm_format == dst_gcm_format)
 		{
-			if (fcmp(src_scaling_hint, dst_scaling_hint) && !fcmp(src_scaling_hint, 1.f))
+			if (fcmpf(src_scaling_hint, dst_scaling_hint) && !fcmpf(src_scaling_hint, 1.f))
 			{
 				verify(HERE), src_is_depth == dst_is_depth;
 				src_is_typeless = dst_is_typeless = false;
