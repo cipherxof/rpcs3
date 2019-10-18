@@ -1909,13 +1909,13 @@ namespace rsx
 			const u32 dst_address = vm::get_addr(dst.pixels);
 			u32 src_address = vm::get_addr(src.pixels);
 
-			const f64 scale_x = fabs(dst.scale_x);
-			const f64 scale_y = fabs(dst.scale_y);
+			const f32 scale_x = fabsf(dst.scale_x);
+			const f32 scale_y = fabsf(dst.scale_y);
 
 			// Offset in x and y for src is 0 (it is already accounted for when getting pixels_src)
 			// Reproject final clip onto source...
-			u16 src_w = (u16)((f64)dst.clip_width / scale_x);
-			u16 src_h = (u16)((f64)dst.clip_height / scale_y);
+			u16 src_w = (u16)((f32)dst.clip_width / scale_x);
+			u16 src_h = (u16)((f32)dst.clip_height / scale_y);
 
 			u16 dst_w = dst.clip_width;
 			u16 dst_h = dst.clip_height;
@@ -1924,7 +1924,7 @@ namespace rsx
 			{
 				// Do subpixel correction in the special case of reverse scanning
 				// When reverse scanning, pixel0 is at offset = (dimension - 1)
-				if (dst.scale_y < 0. && src.offset_y)
+				if (dst.scale_y < 0.f && src.offset_y)
 				{
 					if (src.offset_y = (src.height - src.offset_y);
 						src.offset_y == 1)
@@ -1933,7 +1933,7 @@ namespace rsx
 					}
 				}
 
-				if (dst.scale_x < 0. && src.offset_x)
+				if (dst.scale_x < 0.f && src.offset_x)
 				{
 					if (src.offset_x = (src.width - src.offset_x);
 						src.offset_x == 1)
@@ -1948,7 +1948,7 @@ namespace rsx
 					LOG_ERROR(RSX, "Transfer cropped in Y, src_h=%d, offset_y=%d, block_h=%d", src_h, src.offset_y, src.height);
 
 					src_h = src.height - src.offset_y;
-					dst_h = u16(src_h * scale_y + 0.000001);
+					dst_h = u16(src_h * scale_y + 0.000001f);
 				}
 
 				if (UNLIKELY((src_w + src.offset_x) > src.width))
@@ -1957,17 +1957,17 @@ namespace rsx
 					LOG_ERROR(RSX, "Transfer cropped in X, src_w=%d, offset_x=%d, block_w=%d", src_w, src.offset_x, src.width);
 
 					src_w = src.width - src.offset_x;
-					dst_w = u16(src_w * scale_x + 0.000001);
+					dst_w = u16(src_w * scale_x + 0.000001f);
 				}
 			}
 
-			if (dst.scale_y < 0.)
+			if (dst.scale_y < 0.f)
 			{
 				typeless_info.flip_vertical = true;
 				src_address -= (src.pitch * (src_h - 1));
 			}
 
-			if (dst.scale_x < 0.)
+			if (dst.scale_x < 0.f)
 			{
 				typeless_info.flip_horizontal = true;
 				src_address += (src.width - src_w) * src_bpp;
@@ -2008,13 +2008,13 @@ namespace rsx
 
 					if (_w < width)
 					{
-						if ((_w * scale_x) <= 1.)
+						if ((_w * scale_x) <= 1.f)
 							continue;
 					}
 
 					if (_h < height)
 					{
-						if ((_h * scale_y) <= 1.)
+						if ((_h * scale_y) <= 1.f)
 							continue;
 					}
 
@@ -2042,7 +2042,7 @@ namespace rsx
 				// 1. Invalidate surfaces in range
 				// 2. Proceed as normal, blit into a 'normal' surface and any upload routines should catch it
 				m_rtts.invalidate_range(utils::address_range::start_length(dst_address, dst.pitch * dst_h));
-				use_null_region = (fcmp(scale_x, 1.) && fcmp(scale_y, 1.f));
+				use_null_region = (fcmp(scale_x, 1.f) && fcmp(scale_y, 1.f));
 			}
 
 			// TODO: Handle cases where src or dst can be a depth texture while the other is a color texture - requires a render pass to emulate
@@ -2059,7 +2059,7 @@ namespace rsx
 			{
 				if ((src_h == 1 && dst_h == 1) || (dst_w == src_w && dst_h == src_h && src.pitch == dst.pitch))
 				{
-					if (dst.scale_x > 0. && dst.scale_y > 0.)
+					if (dst.scale_x > 0.f && dst.scale_y > 0.f)
 					{
 						const u32 memcpy_bytes_length = dst.clip_width * dst_bpp * dst.clip_height;
 
@@ -2373,7 +2373,7 @@ namespace rsx
 					u16 image_width = full_width;
 					u16 image_height = src.height;
 
-					if (LIKELY(dst.scale_x > 0. && dst.scale_y > 0.))
+					if (LIKELY(dst.scale_x > 0.f && dst.scale_y > 0.f))
 					{
 						// Loading full image from the corner address
 						// Translate src_area into the declared block
@@ -2441,8 +2441,8 @@ namespace rsx
 			// Reproject clip offsets onto source to simplify blit
 			if (dst.clip_x || dst.clip_y)
 			{
-				const u16 scaled_clip_offset_x = (u16)((f64)dst.clip_x / (scale_x * typeless_info.src_scaling_hint));
-				const u16 scaled_clip_offset_y = (u16)((f64)dst.clip_y / scale_y);
+				const u16 scaled_clip_offset_x = (const u16)((f32)dst.clip_x / (scale_x * typeless_info.src_scaling_hint));
+				const u16 scaled_clip_offset_y = (const u16)((f32)dst.clip_y / scale_y);
 
 				src_area.x1 += scaled_clip_offset_x;
 				src_area.x2 += scaled_clip_offset_x;

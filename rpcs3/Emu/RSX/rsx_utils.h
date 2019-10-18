@@ -204,8 +204,8 @@ namespace rsx
 		u16 clip_y;
 		u16 clip_width;
 		u16 clip_height;
-		f64 scale_x;
-		f64 scale_y;
+		f32 scale_x;
+		f32 scale_y;
 		u32  rsx_address;
 		void *pixels;
 		bool swizzled;
@@ -252,14 +252,9 @@ namespace rsx
 		return static_cast<u32>((1ULL << 32) >> utils::cntlz32(x - 1, true));
 	}
 
-	static inline bool fcmpf(float a, float b, float epsilon = 0.000001f)
+	static inline bool fcmp(float a, float b, float epsilon = 0.000001f)
 	{
 		return fabsf(a - b) < epsilon;
-	}
-
-	static inline bool fcmp(double a, double b, double epsilon = 0.000001)
-	{
-		return fabs(a - b) < epsilon;
 	}
 
 	// Returns an ever-increasing tag value
