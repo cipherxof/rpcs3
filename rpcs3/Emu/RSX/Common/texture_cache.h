@@ -269,6 +269,7 @@ namespace rsx
 		shared_mutex m_cache_mutex;
 		ranged_storage m_storage;
 		std::unordered_multimap<u32, std::pair<deferred_subresource, image_view_type>> m_temporary_subresource_cache;
+		std::vector<image_view_type> m_uncached_subresources;
 		predictor_type m_predictor;
 
 		std::atomic<u64> m_cache_update_tag = {0};
@@ -308,6 +309,7 @@ namespace rsx
 		 */
 		virtual image_view_type create_temporary_subresource_view(commandbuffer_type&, image_resource_type* src, u32 gcm_format, u16 x, u16 y, u16 w, u16 h, const texture_channel_remap_t& remap_vector) = 0;
 		virtual image_view_type create_temporary_subresource_view(commandbuffer_type&, image_storage_type* src, u32 gcm_format, u16 x, u16 y, u16 w, u16 h, const texture_channel_remap_t& remap_vector) = 0;
+		virtual void release_temporary_subresource(image_view_type rsc) = 0;
 		virtual section_storage_type* create_new_texture(commandbuffer_type&, const address_range &rsx_range, u16 width, u16 height, u16 depth, u16 mipmaps, u16 pitch, u32 gcm_format,
 			rsx::texture_upload_context context, rsx::texture_dimension_extended type, texture_create_flags flags) = 0;
 		virtual section_storage_type* upload_image_from_cpu(commandbuffer_type&, const address_range &rsx_range, u16 width, u16 height, u16 depth, u16 mipmaps, u16 pitch, u32 gcm_format, texture_upload_context context,
@@ -1321,7 +1323,7 @@ namespace rsx
 
 		image_view_type create_temporary_subresource(commandbuffer_type &cmd, deferred_subresource& desc)
 		{
-			if (!desc.do_not_cache)
+			if (LIKELY(!desc.do_not_cache))
 			{
 				const auto found = m_temporary_subresource_cache.equal_range(desc.address);
 				for (auto It = found.first; It != found.second; ++It)
@@ -1417,12 +1419,29 @@ namespace rsx
 			}
 			}
 
-			if (result && !desc.do_not_cache)
+			if (LIKELY(result))
 			{
-				m_temporary_subresource_cache.insert({ desc.address,{ desc, result } });
+				if (LIKELY(!desc.do_not_cache))
+				{
+					m_temporary_subresource_cache.insert({ desc.address,{ desc, result } });
+				}
+				else
+				{
+					m_uncached_subresources.push_back(result);
+				}
 			}
 
 			return result;
+		}
+
+		void release_uncached_temporary_subresources()
+		{
+			for (auto& view : m_uncached_subresources)
+			{
+				release_temporary_subresource(view);
+			}
+
+			m_uncached_subresources.clear();
 		}
 
 		void notify_surface_changed(const utils::address_range& range)
@@ -1432,6 +1451,7 @@ namespace rsx
 				const auto& desc = It->second.first;
 				if (range.overlaps(desc.cache_range))
 				{
+					release_temporary_subresource(It->second.second);
 					It = m_temporary_subresource_cache.erase(It);
 				}
 				else
@@ -1474,10 +1494,13 @@ namespace rsx
 						auto result = texture_cache_helpers::process_framebuffer_resource_fast<sampled_image_descriptor>(
 							cmd, texptr, attr, scale, extended_dimension, encoded_remap, remap, true, force_convert);
 
-						if (!options.skip_texture_barriers)
+						if (!options.skip_texture_barriers && result.is_cyclic_reference)
 						{
+							// A texture barrier is only necessary when the rendertarget is going to be bound as a shader input.
+							// If a temporary copy is to be made, this should not be invoked
 							insert_texture_barrier(cmd, texptr);
 						}
+
 						return result;
 					}
 				}
@@ -1699,7 +1722,7 @@ namespace rsx
 
 			const bool is_unnormalized = !!(tex.format() & CELL_GCM_TEXTURE_UN);
 			const bool is_swizzled = !(tex.format() & CELL_GCM_TEXTURE_LN);
-			const auto extended_dimension = tex.get_extended_texture_dimension();
+			auto extended_dimension = tex.get_extended_texture_dimension();
 
 			options.is_compressed_format = texture_cache_helpers::is_compressed_gcm_format(attributes.gcm_format);
 
@@ -1761,6 +1784,14 @@ namespace rsx
 				{
 					LOG_ERROR(RSX, "Unimplemented unnormalized sampling for texture type %d", (u32)extended_dimension);
 				}
+			}
+
+			if (options.is_compressed_format)
+			{
+				attributes.width = align(attributes.width, 4);
+				attributes.height = align(attributes.height, 4);
+
+				extended_dimension = std::max(extended_dimension, rsx::texture_dimension_extended::texture_dimension_2d);
 			}
 
 			const auto lookup_range = utils::address_range::start_length(attributes.address, attributes.pitch * required_surface_height);
