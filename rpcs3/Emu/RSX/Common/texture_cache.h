@@ -1943,6 +1943,9 @@ namespace rsx
 			const f32 scale_x = fabsf(dst.scale_x);
 			const f32 scale_y = fabsf(dst.scale_y);
 
+			const bool is_copy_op = (fcmp(scale_x, 1.f) && fcmp(scale_y, 1.f));
+			const bool is_format_convert = (dst_is_argb8 != src_is_argb8);
+
 			// Offset in x and y for src is 0 (it is already accounted for when getting pixels_src)
 			// Reproject final clip onto source...
 			u16 src_w = (u16)((f32)dst.clip_width / scale_x);
@@ -2073,7 +2076,7 @@ namespace rsx
 				// 1. Invalidate surfaces in range
 				// 2. Proceed as normal, blit into a 'normal' surface and any upload routines should catch it
 				m_rtts.invalidate_range(utils::address_range::start_length(dst_address, dst.pitch * dst_h));
-				use_null_region = (fcmp(scale_x, 1.f) && fcmp(scale_y, 1.f));
+				use_null_region = (is_copy_op && !is_format_convert);
 			}
 
 			// TODO: Handle cases where src or dst can be a depth texture while the other is a color texture - requires a render pass to emulate
@@ -2081,30 +2084,37 @@ namespace rsx
 			src_is_render_target = src_subres.surface != nullptr;
 
 			// Always use GPU blit if src or dst is in the surface store
-			if (!g_cfg.video.use_gpu_texture_scaling && !(src_is_render_target || dst_is_render_target))
-				return false;
-
-			// Check if trivial memcpy can perform the same task
-			// Used to copy programs and arbitrary data to the GPU in some cases
-			if (!src_is_render_target && !dst_is_render_target && dst_is_argb8 == src_is_argb8 && !dst.swizzled)
+			if (!src_is_render_target && !dst_is_render_target && !g_cfg.video.use_gpu_texture_scaling)
 			{
-				if ((src_h == 1 && dst_h == 1) || (dst_w == src_w && dst_h == src_h && src.pitch == dst.pitch))
+				if (dst.swizzled)
 				{
-					if (dst.scale_x > 0.f && dst.scale_y > 0.f)
-					{
-						const u32 memcpy_bytes_length = dst.clip_width * dst_bpp * dst.clip_height;
+					// Swizzle operation requested. Use fallback
+					return false;
+				}
 
-						std::lock_guard lock(m_cache_mutex);
-						invalidate_range_impl_base(cmd, address_range::start_length(src_address, memcpy_bytes_length), invalidation_cause::read, std::forward<Args>(extras)...);
-						invalidate_range_impl_base(cmd, address_range::start_length(dst_address, memcpy_bytes_length), invalidation_cause::write, std::forward<Args>(extras)...);
-						memcpy(dst.pixels, src.pixels, memcpy_bytes_length);
-						return true;
-					}
-					else
+				if (is_copy_op && !is_format_convert)
+				{
+					// Check if trivial memcpy can perform the same task
+					// Used to copy programs and arbitrary data to the GPU in some cases
+					if ((src_h == 1 && dst_h == 1) || (dst_w == src_w && dst_h == src_h && src.pitch == dst.pitch))
 					{
-						// Rotation transform applied, use fallback
-						return false;
+						if (dst.scale_x > 0.f && dst.scale_y > 0.f)
+						{
+							const u32 memcpy_bytes_length = dst.clip_width * dst_bpp * dst.clip_height;
+
+							std::lock_guard lock(m_cache_mutex);
+							invalidate_range_impl_base(cmd, address_range::start_length(src_address, memcpy_bytes_length), invalidation_cause::read, std::forward<Args>(extras)...);
+							invalidate_range_impl_base(cmd, address_range::start_length(dst_address, memcpy_bytes_length), invalidation_cause::write, std::forward<Args>(extras)...);
+							memcpy(dst.pixels, src.pixels, memcpy_bytes_length);
+							return true;
+						}
 					}
+
+					return false;
+				}
+				else if (get_location(dst_address) != CELL_GCM_LOCATION_LOCAL)
+				{
+					return false;
 				}
 			}
 
