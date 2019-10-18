@@ -204,8 +204,8 @@ namespace rsx
 		u16 clip_y;
 		u16 clip_width;
 		u16 clip_height;
-		f64 scale_x;
-		f64 scale_y;
+		f32 scale_x;
+		f32 scale_y;
 		u32  rsx_address;
 		void *pixels;
 		bool swizzled;
@@ -252,14 +252,9 @@ namespace rsx
 		return static_cast<u32>((1ULL << 32) >> utils::cntlz32(x - 1, true));
 	}
 
-	static inline bool fcmpf(float a, float b, float epsilon = 0.000001f)
+	static inline bool fcmp(float a, float b, float epsilon = 0.000001f)
 	{
 		return fabsf(a - b) < epsilon;
-	}
-
-	static inline bool fcmp(double a, double b, double epsilon = 0.000001)
-	{
-		return fabs(a - b) < epsilon;
 	}
 
 	// Returns an ever-increasing tag value
@@ -757,25 +752,21 @@ namespace rsx
 		return result;
 	}
 
-	static inline f32 decode_fx13(u32 bits)
+	template <uint integer, uint frac, bool sign = true, typename To = f32>
+	static inline To decode_fxp(u32 bits)
 	{
+		static_assert(u64{sign} + integer + frac <= 32, "Invalid decode_fxp range");
+
 		// Classic fixed point, see PGRAPH section of nouveau docs for TEX_FILTER (lod_bias) and TEX_CONTROL (min_lod, max_lod)
 		// Technically min/max lod are fixed 4.8 but a 5.8 decoder should work just as well since sign bit is 0
 
-		if ((bits & (1 << 12)) == 0)
+		if constexpr (sign) if (bits & (1 << (integer + frac)))
 		{
-			const auto integral = f32(bits >> 8);
-			const auto fractional = (bits & 0xff) / 256.f;
-			return integral + fractional;
+			bits = (0 - bits) & (~0u >> (31 - (integer + frac)));
+			return bits / (-To(1u << frac));
 		}
-		else
-		{
-			// Negative sign bit
-			bits = (~bits + 1) & 0x1fff;
-			const auto integral = -f32(bits >> 8);
-			const auto fractional = (bits & 0xff) / 256.f;
-			return integral - fractional;
-		}
+
+		return bits / To(1u << frac);
 	}
 
 	template <int N>

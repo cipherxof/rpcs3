@@ -5,6 +5,7 @@
 #include <tuple>
 #include <climits>
 #include "gcm_enums.h"
+#include "rsx_utils.h"
 #pragma warning(disable:4503)
 
 namespace
@@ -2022,23 +2023,18 @@ struct registers_decoder<NV3089_DS_DX>
 	public:
 		decoded_type(u32 value) : value(value) {}
 
-		// Convert signed 12.20 fixed point 32-bit format
-		f64 ds_dx() const
+		// Convert signed fixed point 32-bit format
+		f32 ds_dx() const
 		{
 			const u32 val = value;
 
 			if (val == 0)
 			{
-				// Infinity, return invalid value
+				// Will get reported in image_in
 				return 0;
 			}
 
-			if ((s32)val < 0)
-			{
-				return -1048576. / (0 - val);
-			}
-
-			return 1048576. / val;
+			return 1.f / rsx::decode_fxp<11, 20>(val);
 		}
 	};
 
@@ -2059,23 +2055,18 @@ struct registers_decoder<NV3089_DT_DY>
 	public:
 		decoded_type(u32 value) : value(value) {}
 
-		// Convert signed 12.20 fixed point 32-bit format
-		f64 dt_dy() const
+		// Convert signed fixed point 32-bit format
+		f32 dt_dy() const
 		{
 		    const u32 val = value;
 
 			if (val == 0)
 			{
-				// Infinity, return invalid value
-				return 0;
+				// Will get reported in image_in
+				return 0.f;
 			}
 
-			if ((s32)val < 0)
-			{
-				return -1048576. / (0 - val);
-			}
-
-			return 1048576. / val;
+			return 1.f / rsx::decode_fxp<11, 20>(val);
 		}
 	};
 
