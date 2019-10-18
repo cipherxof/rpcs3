@@ -487,7 +487,7 @@ namespace gl
 		}
 
 		gl::texture_view* create_temporary_subresource_impl(gl::command_context& cmd, gl::texture* src, GLenum sized_internal_fmt, GLenum dst_type, u32 gcm_format,
-				u16 x, u16 y, u16 width, u16 height, const texture_channel_remap_t& remap, bool copy)
+				u16 x, u16 y, u16 width, u16 height, const rsx::texture_channel_remap_t& remap, bool copy)
 		{
 			if (sized_internal_fmt == GL_NONE)
 			{
@@ -501,7 +501,8 @@ namespace gl
 				std::vector<copy_region_descriptor> region =
 				{{
 					src,
-					surface_transform::coordinate_transform,
+					rsx::surface_transform::coordinate_transform,
+					0,
 					x, y, 0, 0, 0,
 					width, height, width, height
 				}};
@@ -584,7 +585,7 @@ namespace gl
 				auto src_w = slice.src_w;
 				auto src_h = slice.src_h;
 
-				if (slice.xform == surface_transform::coordinate_transform)
+				if (slice.xform == rsx::surface_transform::coordinate_transform)
 				{
 					// Dimensions were given in 'dst' space. Work out the real source coordinates
 					const auto src_bpp = slice.src->pitch() / slice.src->width();
@@ -620,7 +621,7 @@ namespace gl
 				if (src_w == slice.dst_w && src_h == slice.dst_h)
 				{
 					glCopyImageSubData(src_image->id(), GL_TEXTURE_2D, 0, src_x, src_y, 0,
-						dst_image->id(), (GLenum)dst_image->get_target(), 0, slice.dst_x, slice.dst_y, slice.dst_z, src_w, src_h, 1);
+						dst_image->id(), (GLenum)dst_image->get_target(), slice.level, slice.dst_x, slice.dst_y, slice.dst_z, src_w, src_h, 1);
 				}
 				else
 				{
@@ -630,10 +631,13 @@ namespace gl
 					const areai src_rect = { src_x, src_y, src_x + src_w, src_y + src_h };
 					const areai dst_rect = { slice.dst_x, slice.dst_y, slice.dst_x + slice.dst_w, slice.dst_y + slice.dst_h };
 
-					auto _dst = dst_image;
-					if (UNLIKELY(src_image->get_internal_format() != dst_image->get_internal_format()))
+					gl::texture* _dst;
+					if (src_image->get_internal_format() == dst_image->get_internal_format() && slice.level == 0)
 					{
-						verify(HERE), !typeless;
+						_dst = dst_image;
+					}
+					else
+					{
 						tmp = std::make_unique<texture>(GL_TEXTURE_2D, dst_rect.x2, dst_rect.y2, 1, 1, (GLenum)slice.src->get_internal_format());
 						_dst = tmp.get();
 					}
@@ -645,7 +649,7 @@ namespace gl
 					{
 						// Data cast comes after scaling
 						glCopyImageSubData(tmp->id(), GL_TEXTURE_2D, 0, slice.dst_x, slice.dst_y, 0,
-							dst_image->id(), (GLenum)dst_image->get_target(), 0, slice.dst_x, slice.dst_y, slice.dst_z, slice.dst_w, slice.dst_h, 1);
+							dst_image->id(), (GLenum)dst_image->get_target(), slice.level, slice.dst_x, slice.dst_y, slice.dst_z, slice.dst_w, slice.dst_h, 1);
 					}
 				}
 			}
@@ -691,19 +695,19 @@ namespace gl
 	protected:
 
 		gl::texture_view* create_temporary_subresource_view(gl::command_context &cmd, gl::texture** src, u32 gcm_format, u16 x, u16 y, u16 w, u16 h,
-				const texture_channel_remap_t& remap_vector) override
+				const rsx::texture_channel_remap_t& remap_vector) override
 		{
 			return create_temporary_subresource_impl(cmd, *src, GL_NONE, GL_TEXTURE_2D, gcm_format, x, y, w, h, remap_vector, true);
 		}
 
 		gl::texture_view* create_temporary_subresource_view(gl::command_context &cmd, gl::texture* src, u32 gcm_format, u16 x, u16 y, u16 w, u16 h,
-				const texture_channel_remap_t& remap_vector) override
+				const rsx::texture_channel_remap_t& remap_vector) override
 		{
 			return create_temporary_subresource_impl(cmd, src, (GLenum)src->get_internal_format(),
 					GL_TEXTURE_2D, gcm_format, x, y, w, h, remap_vector, true);
 		}
 
-		gl::texture_view* generate_cubemap_from_images(gl::command_context& cmd, u32 gcm_format, u16 size, const std::vector<copy_region_descriptor>& sources, const texture_channel_remap_t& /*remap_vector*/) override
+		gl::texture_view* generate_cubemap_from_images(gl::command_context& cmd, u32 gcm_format, u16 size, const std::vector<copy_region_descriptor>& sources, const rsx::texture_channel_remap_t& /*remap_vector*/) override
 		{
 			const GLenum ifmt = gl::get_sized_internal_format(gcm_format);
 			std::unique_ptr<gl::texture> dst_image = std::make_unique<gl::viewable_image>(GL_TEXTURE_CUBE_MAP, size, size, 1, 1, ifmt);
@@ -725,7 +729,7 @@ namespace gl
 			return result;
 		}
 
-		gl::texture_view* generate_3d_from_2d_images(gl::command_context& cmd, u32 gcm_format, u16 width, u16 height, u16 depth, const std::vector<copy_region_descriptor>& sources, const texture_channel_remap_t& /*remap_vector*/) override
+		gl::texture_view* generate_3d_from_2d_images(gl::command_context& cmd, u32 gcm_format, u16 width, u16 height, u16 depth, const std::vector<copy_region_descriptor>& sources, const rsx::texture_channel_remap_t& /*remap_vector*/) override
 		{
 			const GLenum ifmt = gl::get_sized_internal_format(gcm_format);
 			std::unique_ptr<gl::texture> dst_image = std::make_unique<gl::viewable_image>(GL_TEXTURE_3D, width, height, depth, 1, ifmt);
@@ -748,7 +752,7 @@ namespace gl
 		}
 
 		gl::texture_view* generate_atlas_from_images(gl::command_context& cmd, u32 gcm_format, u16 width, u16 height, const std::vector<copy_region_descriptor>& sections_to_copy,
-				const texture_channel_remap_t& remap_vector) override
+				const rsx::texture_channel_remap_t& remap_vector) override
 		{
 			auto _template = get_template_from_collection_impl(sections_to_copy);
 			auto result = create_temporary_subresource_impl(cmd, _template, GL_NONE, GL_TEXTURE_2D, gcm_format, 0, 0, width, height, remap_vector, false);
@@ -757,12 +761,46 @@ namespace gl
 			return result;
 		}
 
+		gl::texture_view* generate_2d_mipmaps_from_images(gl::command_context& cmd, u32 gcm_format, u16 width, u16 height, const std::vector<copy_region_descriptor>& sections_to_copy,
+			const rsx::texture_channel_remap_t& remap_vector) override
+		{
+			const auto _template = sections_to_copy.front().src;
+			const GLenum ifmt = (GLenum)_template->get_internal_format();
+			const u8 mipmaps = (u8)sections_to_copy.size();
+			const auto swizzle = _template->get_native_component_layout();
+
+			auto image_ptr = new gl::viewable_image(GL_TEXTURE_2D, width, height, 1, mipmaps, ifmt);
+			image_ptr->set_native_component_layout(swizzle);
+
+			copy_transfer_regions_impl(cmd, image_ptr, sections_to_copy);
+
+			auto view = image_ptr->get_view(get_remap_encoding(remap_vector), remap_vector);
+
+			std::unique_ptr<gl::texture> dst_image(image_ptr);
+			m_temporary_surfaces.emplace_back(dst_image);
+			return view;
+		}
+
+		void release_temporary_subresource(gl::texture_view* view) override
+		{
+			for (auto& e : m_temporary_surfaces)
+			{
+				if (e.image.get() == view->image())
+				{
+					e.view.reset();
+					e.image.reset();
+					return;
+				}
+			}
+		}
+
 		void update_image_contents(gl::command_context& cmd, gl::texture_view* dst, gl::texture* src, u16 width, u16 height) override
 		{
 			std::vector<copy_region_descriptor> region =
 			{{
 				src,
-				surface_transform::identity,
+				rsx::surface_transform::identity,
+				0,
 				0, 0, 0, 0, 0,
 				width, height, width, height
 			}};

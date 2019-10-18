@@ -443,6 +443,7 @@ namespace vk
 	struct temporary_storage
 	{
 		std::unique_ptr<vk::viewable_image> combined_image;
+		bool can_reuse = false;
 
 		// Memory held by this temp storage object
 		u32 block_size = 0;
@@ -466,14 +467,15 @@ namespace vk
 			return ref_frame > 0 && frame_tag <= ref_frame;
 		}
 
-		bool matches(VkFormat format, u16 w, u16 h, u16 d, VkFlags flags) const
+		bool matches(VkFormat format, u16 w, u16 h, u16 d, u16 mipmaps, VkFlags flags) const
 		{
 			if (combined_image &&
 				combined_image->info.flags == flags &&
 				combined_image->format() == format &&
 				combined_image->width() == w &&
 				combined_image->height() == h &&
-				combined_image->depth() == d)
+				combined_image->depth() == d &&
+				combined_image->mipmaps() == mipmaps)
 			{
 				return true;
 			}
@@ -519,7 +521,7 @@ namespace vk
 			m_temporary_memory_size = 0;
 		}
 
-		VkComponentMapping apply_component_mapping_flags(u32 gcm_format, rsx::texture_create_flags flags, const texture_channel_remap_t& remap_vector) const
+		VkComponentMapping apply_component_mapping_flags(u32 gcm_format, rsx::texture_create_flags flags, const rsx::texture_channel_remap_t& remap_vector) const
 		{
 			switch (gcm_format)
 			{
@@ -571,7 +573,11 @@ namespace vk
 				const bool typeless = section.src->aspect() != dst_aspect ||
 					!formats_are_bitcast_compatible(dst->format(), section.src->format());
 
-				section.src->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+				// Avoid inserting unnecessary barrier GENERAL->TRANSFER_SRC->GENERAL in active render targets
+				const auto preferred_layout = (section.src->current_layout != VK_IMAGE_LAYOUT_GENERAL) ?
+					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
+
+				section.src->push_layout(cmd, preferred_layout);
 
 				auto src_image = section.src;
 				auto src_x = section.src_x;
@@ -580,14 +586,14 @@ namespace vk
 				auto src_h = section.src_h;
 
 				rsx::flags32_t transform = section.xform;
-				if (section.xform == surface_transform::coordinate_transform)
+				if (section.xform == rsx::surface_transform::coordinate_transform)
 				{
 					// Dimensions were given in 'dst' space. Work out the real source coordinates
 					const auto src_bpp = vk::get_format_texel_width(section.src->format());
 					src_x = (src_x * dst_bpp) / src_bpp;
 					src_w = (src_w * dst_bpp) / src_bpp;
 
-					transform &= ~(surface_transform::coordinate_transform);
+					transform &= ~(rsx::surface_transform::coordinate_transform);
 				}
 
 				if (auto surface = dynamic_cast<vk::render_target*>(section.src))
@@ -613,12 +619,12 @@ namespace vk
 					src_w = convert_w;
 				}
 
-				verify(HERE), src_image->current_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				verify(HERE), src_image->current_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL || src_image->current_layout == VK_IMAGE_LAYOUT_GENERAL;
 
 				// Final aspect mask of the 'final' transfer source
 				const auto new_src_aspect = src_image->aspect();
 
-				if (LIKELY(src_w == section.dst_w && src_h == section.dst_h && transform == surface_transform::identity))
+				if (LIKELY(src_w == section.dst_w && src_h == section.dst_h && transform == rsx::surface_transform::identity))
 				{
 					VkImageCopy copy_rgn;
 					copy_rgn.srcOffset = { src_x, src_y, 0 };
@@ -634,6 +640,7 @@ namespace vk
 					else
 					{
 						copy_rgn.dstSubresource.baseArrayLayer = section.dst_z;
+						copy_rgn.dstSubresource.mipLevel = section.level;
 					}
 
 					vkCmdCopyImage(cmd, src_image->value, src_image->current_layout, dst->value, dst->current_layout, 1, &copy_rgn);
@@ -645,19 +652,18 @@ namespace vk
 					u16 dst_x = section.dst_x, dst_y = section.dst_y;
 					vk::image* _dst;
 
-					if (LIKELY(src_image->info.format == dst->info.format))
+					if (LIKELY(src_image->info.format == dst->info.format && section.level == 0))
 					{
 						_dst = dst;
 					}
 					else
 					{
-						verify(HERE), !typeless;
-
+						// Either a bitcast is required or a scale+copy to mipmap level
 						_dst = vk::get_typeless_helper(src_image->info.format, dst->width(), dst->height() * 2);
 						_dst->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 					}
 
-					if (transform == surface_transform::identity)
+					if (transform == rsx::surface_transform::identity)
 					{
 						vk::copy_scaled_image(cmd, src_image->value, _dst->value, section.src->current_layout, _dst->current_layout,
 							coordi{ { src_x, src_y }, { src_w, src_h } },
@@ -665,7 +671,7 @@ namespace vk
 							1, src_image->aspect(), src_image->info.format == _dst->info.format,
 							VK_FILTER_NEAREST, src_image->info.format, _dst->info.format);
 					}
-					else if (transform == surface_transform::argb_to_bgra)
+					else if (transform == rsx::surface_transform::argb_to_bgra)
 					{
 						VkBufferImageCopy copy{};
 						copy.imageExtent = { src_w, src_h, 1 };
@@ -673,7 +679,7 @@ namespace vk
 						copy.imageSubresource = { src_image->aspect(), 0, 0, 1 };
 
 						auto scratch_buf = vk::get_scratch_buffer();
-						vkCmdCopyImageToBuffer(cmd, src_image->value, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, scratch_buf->value, 1, &copy);
+						vkCmdCopyImageToBuffer(cmd, src_image->value, src_image->current_layout, scratch_buf->value, 1, &copy);
 
 						const auto mem_length = src_w * src_h * dst_bpp;
 						vk::insert_buffer_memory_barrier(cmd, scratch_buf->value, 0, mem_length, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -724,7 +730,7 @@ namespace vk
 						VkImageCopy copy_rgn;
 						copy_rgn.srcOffset = { s32(dst_x), s32(dst_y), 0 };
 						copy_rgn.dstOffset = { section.dst_x, section.dst_y, 0 };
-						copy_rgn.dstSubresource = { dst_aspect, 0, 0, 1 };
+						copy_rgn.dstSubresource = { dst_aspect, section.level, 0, 1 };
 						copy_rgn.srcSubresource = { _dst->aspect(), 0, 0, 1 };
 						copy_rgn.extent = { section.dst_w, section.dst_h, 1 };
 
@@ -771,12 +777,12 @@ namespace vk
 			return result;
 		}
 
-		std::unique_ptr<vk::viewable_image> find_temporary_image(VkFormat format, u16 w, u16 h, u16 d)
+		std::unique_ptr<vk::viewable_image> find_temporary_image(VkFormat format, u16 w, u16 h, u16 d, u8 mipmaps)
 		{
 			const auto current_frame = vk::get_current_frame_id();
 			for (auto &e : m_temporary_storage)
 			{
-				if (e.frame_tag != current_frame && e.matches(format, w, h, d, 0))
+				if (e.can_reuse && e.matches(format, w, h, d, mipmaps, 0))
 				{
 					m_temporary_memory_size -= e.block_size;
 					e.block_size = 0;
@@ -792,7 +798,7 @@ namespace vk
 			const auto current_frame = vk::get_current_frame_id();
 			for (auto &e : m_temporary_storage)
 			{
-				if (e.frame_tag != current_frame && e.matches(format, size, size, 1, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT))
+				if (e.can_reuse && e.matches(format, size, size, 1, 1, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT))
 				{
 					m_temporary_memory_size -= e.block_size;
 					e.block_size = 0;
@@ -805,7 +811,7 @@ namespace vk
 
 	protected:
 		vk::image_view* create_temporary_subresource_view_impl(vk::command_buffer& cmd, vk::image* source, VkImageType image_type, VkImageViewType view_type,
-			u32 gcm_format, u16 x, u16 y, u16 w, u16 h, const texture_channel_remap_t& remap_vector, bool copy)
+			u32 gcm_format, u16 x, u16 y, u16 w, u16 h, const rsx::texture_channel_remap_t& remap_vector, bool copy)
 		{
 			std::unique_ptr<vk::viewable_image> image;
 
@@ -814,7 +820,7 @@ namespace vk
 
 			if (LIKELY(!image_flags))
 			{
-				image = find_temporary_image(dst_format, w, h, 1);
+				image = find_temporary_image(dst_format, w, h, 1, 1);
 			}
 			else
 			{
@@ -854,7 +860,8 @@ namespace vk
 				std::vector<copy_region_descriptor> region =
 				{{
 					source,
-					surface_transform::coordinate_transform,
+					rsx::surface_transform::coordinate_transform,
+					0,
 					x, y, 0, 0, 0,
 					w, h, w, h
 				}};
@@ -873,20 +880,20 @@ namespace vk
 		}
 
 		vk::image_view* create_temporary_subresource_view(vk::command_buffer& cmd, vk::image* source, u32 gcm_format,
-				u16 x, u16 y, u16 w, u16 h, const texture_channel_remap_t& remap_vector) override
+				u16 x, u16 y, u16 w, u16 h, const rsx::texture_channel_remap_t& remap_vector) override
 		{
 			return create_temporary_subresource_view_impl(cmd, source, source->info.imageType, VK_IMAGE_VIEW_TYPE_2D,
 					gcm_format, x, y, w, h, remap_vector, true);
 		}
 
 		vk::image_view* create_temporary_subresource_view(vk::command_buffer& cmd, vk::image** source, u32 gcm_format,
-				u16 x, u16 y, u16 w, u16 h, const texture_channel_remap_t& remap_vector) override
+				u16 x, u16 y, u16 w, u16 h, const rsx::texture_channel_remap_t& remap_vector) override
 		{
 			return create_temporary_subresource_view(cmd, *source, gcm_format, x, y, w, h, remap_vector);
 		}
 
 		vk::image_view* generate_cubemap_from_images(vk::command_buffer& cmd, u32 gcm_format, u16 size,
-				const std::vector<copy_region_descriptor>& sections_to_copy, const texture_channel_remap_t& /*remap_vector*/) override
+				const std::vector<copy_region_descriptor>& sections_to_copy, const rsx::texture_channel_remap_t& /*remap_vector*/) override
 		{
 			std::unique_ptr<vk::viewable_image> image;
 			VkFormat dst_format = vk::get_compatible_sampler_format(m_formats_support, gcm_format);
@@ -938,13 +945,13 @@ namespace vk
 		}
 
 		vk::image_view* generate_3d_from_2d_images(vk::command_buffer& cmd, u32 gcm_format, u16 width, u16 height, u16 depth,
-			const std::vector<copy_region_descriptor>& sections_to_copy, const texture_channel_remap_t& /*remap_vector*/) override
+			const std::vector<copy_region_descriptor>& sections_to_copy, const rsx::texture_channel_remap_t& /*remap_vector*/) override
 		{
 			std::unique_ptr<vk::viewable_image> image;
 			VkFormat dst_format = vk::get_compatible_sampler_format(m_formats_support, gcm_format);
 			VkImageAspectFlags dst_aspect = vk::get_aspect_flags(dst_format);
 
-			if (image = find_temporary_image(dst_format, width, height, depth); !image)
+			if (image = find_temporary_image(dst_format, width, height, depth, 1); !image)
 			{
 				image = std::make_unique<vk::viewable_image>(*vk::get_current_renderer(), m_memory_types.device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					VK_IMAGE_TYPE_3D,
@@ -990,7 +997,7 @@ namespace vk
 		}
 
 		vk::image_view* generate_atlas_from_images(vk::command_buffer& cmd, u32 gcm_format, u16 width, u16 height,
-				const std::vector<copy_region_descriptor>& sections_to_copy, const texture_channel_remap_t& remap_vector) override
+				const std::vector<copy_region_descriptor>& sections_to_copy, const rsx::texture_channel_remap_t& remap_vector) override
 		{
 			auto _template = get_template_from_collection_impl(sections_to_copy);
 			auto result = create_temporary_subresource_view_impl(cmd, _template, VK_IMAGE_TYPE_2D,
@@ -1018,12 +1025,61 @@ namespace vk
 			return result;
 		}
 
+		vk::image_view* generate_2d_mipmaps_from_images(vk::command_buffer& cmd, u32 gcm_format, u16 width, u16 height,
+			const std::vector<copy_region_descriptor>& sections_to_copy, const rsx::texture_channel_remap_t& remap_vector) override
+		{
+			const auto _template = sections_to_copy.front().src;
+			const auto mipmaps = (u8)sections_to_copy.size();
+
+			std::unique_ptr<vk::viewable_image> image;
+			if (image = find_temporary_image(_template->format(), width, height, 1, mipmaps); !image)
+			{
+				image = std::make_unique<vk::viewable_image>(*vk::get_current_renderer(), m_memory_types.device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					_template->info.imageType,
+					_template->info.format,
+					width, height, 1, mipmaps, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0);
+
+				image->set_native_component_layout(_template->native_component_map);
+			}
+
+			auto view = image->get_view(get_remap_encoding(remap_vector), remap_vector);
+
+			VkImageSubresourceRange dst_range = { _template->aspect(), 0, mipmaps, 0, 1 };
+			vk::change_image_layout(cmd, image.get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dst_range);
+
+			copy_transfer_regions_impl(cmd, image.get(), sections_to_copy);
+
+			vk::change_image_layout(cmd, image.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, dst_range);
+
+			const u32 resource_memory = width * height * 2 * 4; // Rough approximate
+			m_temporary_storage.emplace_back(image);
+			m_temporary_storage.back().block_size = resource_memory;
+			m_temporary_memory_size += resource_memory;
+
+			return view;
+		}
+
+		void release_temporary_subresource(vk::image_view* view) override
+		{
+			auto handle = dynamic_cast<vk::viewable_image*>(view->image());
+			for (auto& e : m_temporary_storage)
+			{
+				if (e.combined_image.get() == handle)
+				{
+					e.can_reuse = true;
+					return;
+				}
+			}
+		}
+
 		void update_image_contents(vk::command_buffer& cmd, vk::image_view* dst_view, vk::image* src, u16 width, u16 height) override
 		{
 			std::vector<copy_region_descriptor> region =
-			{{
+			{ {
 				src,
-				surface_transform::identity,
+				rsx::surface_transform::identity,
+				0,
 				0, 0, 0, 0, 0,
 				width, height, width, height
 			}};

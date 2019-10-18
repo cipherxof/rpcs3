@@ -88,6 +88,8 @@ namespace vk
 		AMD_vega,
 		AMD_navi,
 		NV_generic,
+		NV_kepler,
+		NV_maxwell,
 		NV_pascal,
 		NV_volta,
 		NV_turing
@@ -148,6 +150,10 @@ namespace vk
 
 	void destroy_global_resources();
 	void reset_global_resources();
+
+	void vmm_notify_memory_allocated(void* handle, u32 memory_type, u64 memory_size);
+	void vmm_notify_memory_freed(void* handle);
+	void vmm_reset();
 
 	/**
 	* Allocate enough space in upload_buffer and write all mipmap/layer data into the subbuffer.
@@ -317,11 +323,14 @@ namespace vk
 			mem_req.alignment = alignment;
 			create_info.memoryTypeBits = 1u << memory_type_index;
 			CHECK_RESULT(vmaAllocateMemory(m_allocator, &mem_req, &create_info, &vma_alloc, nullptr));
+
+			vmm_notify_memory_allocated(vma_alloc, memory_type_index, block_sz);
 			return vma_alloc;
 		}
 
 		void free(mem_handle_t mem_handle) override
 		{
+			vmm_notify_memory_freed(mem_handle);
 			vmaFreeMemory(m_allocator, static_cast<VmaAllocation>(mem_handle));
 		}
 
@@ -378,13 +387,15 @@ namespace vk
 			info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 			info.allocationSize = block_sz;
 			info.memoryTypeIndex = memory_type_index;
-
 			CHECK_RESULT(vkAllocateMemory(m_device, &info, nullptr, &memory));
+
+			vmm_notify_memory_allocated(memory, memory_type_index, block_sz);
 			return memory;
 		}
 
 		void free(mem_handle_t mem_handle) override
 		{
+			vmm_notify_memory_freed(mem_handle);
 			vkFreeMemory(m_device, (VkDeviceMemory)mem_handle, nullptr);
 		}
 
@@ -587,13 +598,11 @@ private:
 				LOG_FATAL(RSX, "RADV drivers have a major driver bug with LLVM 8.0.0 resulting in no visual output. Upgrade to LLVM version 8.0.1 or greater to avoid this issue.");
 			}
 
-#ifndef _WIN32
-			if (get_name().find("VEGA") != std::string::npos)
+			if (get_chip_class() == chip_class::AMD_vega)
 			{
-				LOG_WARNING(RSX, "float16_t does not work correctly on VEGA hardware for both RADV and AMDVLK. Using float32_t fallback instead.");
+				LOG_WARNING(RSX, "float16_t does not work correctly on VEGA hardware on all drivers. Using float32_t fallback instead.");
 				shader_types_support.allow_float16 = false;
 			}
-#endif
 		}
 
 		std::string get_name() const
@@ -1186,6 +1195,11 @@ private:
 		u32 depth() const
 		{
 			return info.extent.depth;
+		}
+
+		u32 mipmaps() const
+		{
+			return info.mipLevels;
 		}
 
 		u8 samples() const
