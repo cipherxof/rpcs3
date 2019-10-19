@@ -59,7 +59,7 @@ spu_function_t spu_recompiler::compile(u64 last_reset_count, const std::vector<u
 		return nullptr;
 	}
 
-	if (auto cache = g_fxo->get<spu_cache>(); cache && g_cfg.core.spu_cache)
+	if (auto cache = g_fxo->get<spu_cache>(); cache && g_cfg.core.spu_cache && g_cfg.core.spu_decoder == spu_decoder_type::asmjit)
 	{
 		cache->add(func);
 	}
