@@ -78,7 +78,8 @@ struct syscache
 
 	~syscache()
 	{
-		if (mounted)
+		// Check if mounted and cache_id is different than already written empty value
+		if (!cache_id.empty())
 		{
 			fs::write_file(fs::get_cache_dir() + "/cache/cacheId", fs::rewrite, cache_id);
 		}
@@ -363,21 +364,20 @@ s32 cellSysCacheMount(vm::ptr<CellSysCacheParam> param)
 		// Get last cache ID, lasts between application boots
 		fs::file last_id(fs::get_cache_dir() + "/cache/cacheId", fs::read + fs::write + fs::create);
 		const auto id_size = last_id.size();
-		verify(HERE), id_size <= CELL_SYSCACHE_ID_SIZE;
-
-		// Protection against rpcs3 crash, write value longer than max cacheId size (clear cache on next startup)
-		last_id.seek(id_size);
-		last_id.write(std::string(CELL_SYSCACHE_ID_SIZE - id_size, '0'));
 
 		// Compare specified ID with old one (if size is 0 clear unconditionally)
-		if (id_size && id_size == cache_id.size() && [&]()
+		const bool relayed = id_size && id_size == cache_id.size() && [&]()
 		{
-			std::unique_ptr<char[]> buf(new char[id_size]);
-			last_id.seek(0);
-			last_id.read(buf.get(), id_size);
+			char buf[CELL_SYSCACHE_ID_SIZE - 1];
+			last_id.read(buf, id_size);
+			return memcmp(buf, cache_id.c_str(), id_size) == 0;
+		}();
 
-			return memcmp(buf.get(), cache_id.c_str(), id_size) == 0;
-		}())
+		// Protection against rpcs3 crash (syscache dtor wasn't called)
+		// Clear cacheId (clear cache on next startup)
+		last_id.trunc(0);
+
+		if (relayed)
 		{
 			cache->cache_id = std::move(cache_id);
 			return CELL_SYSCACHE_RET_OK_RELAYED;
