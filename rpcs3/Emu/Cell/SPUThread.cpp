@@ -1208,14 +1208,18 @@ spu_thread::spu_thread(vm::addr_t ls, lv2_spu_group* group, u32 index, std::stri
 	, offset(ls)
 	, group(group)
 {
+	const bool is_rawspu_thread = offset >= RAW_SPU_BASE_ADDR;
+
 	if (g_cfg.core.spu_decoder == spu_decoder_type::asmjit)
 	{
 		jit = spu_recompiler_base::make_asmjit_recompiler();
 	}
-
-	if (g_cfg.core.spu_decoder == spu_decoder_type::llvm)
+	else if (g_cfg.core.spu_decoder == spu_decoder_type::llvm)
 	{
-		jit = spu_recompiler_base::make_fast_llvm_recompiler();
+		if (is_rawspu_thread)
+			jit = spu_recompiler_base::make_asmjit_recompiler();
+		else
+			jit = spu_recompiler_base::make_fast_llvm_recompiler();
 	}
 
 	if (g_cfg.core.spu_decoder != spu_decoder_type::fast && g_cfg.core.spu_decoder != spu_decoder_type::precise)
@@ -1227,7 +1231,7 @@ spu_thread::spu_thread(vm::addr_t ls, lv2_spu_group* group, u32 index, std::stri
 		}
 	}
 
-	if (!group && offset >= RAW_SPU_BASE_ADDR)
+	if (!group && is_rawspu_thread)
 	{
 		cpu_init();
 	}

@@ -4189,7 +4189,7 @@ public:
 
 		std::string log;
 
-		if (auto cache = g_fxo->get<spu_cache>(); cache && g_cfg.core.spu_cache && !add_loc->cached.exchange(1))
+		if (auto cache = g_fxo->get<spu_cache>(); cache && g_cfg.core.spu_cache && g_cfg.core.spu_decoder == spu_decoder_type::llvm && !add_loc->cached.exchange(1))
 		{
 			cache->add(func);
 		}
