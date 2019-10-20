@@ -251,11 +251,31 @@
                </widget>
               </item>
               <item>
-               <widget class="QCheckBox" name="accurateXFloat">
-                <property name="text">
-                 <string>Accurate xfloat</string>
+               <layout class="QHBoxLayout" name="horizontalLayout">
+                <item>
+                 <widget class="QLabel" name="lbl_xfloaAccuracy">
+                  <property name="text">
+                   <string>xfloat Accuracy:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QComboBox" name="xfloatAccuracy"/>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <spacer name="verticalSpacer_24">
+                <property name="orientation">
+                 <enum>Qt::Vertical</enum>
                 </property>
-               </widget>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>20</width>
+                  <height>40</height>
+                 </size>
+                </property>
+               </spacer>
               </item>
              </layout>
             </widget>

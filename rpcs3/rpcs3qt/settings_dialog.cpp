@@ -187,10 +187,40 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> guiSettings, std:
 	xemu_settings->EnhanceCheckBox(ui->spuLoopDetection, emu_settings::SPULoopDetection);
 	SubscribeTooltip(ui->spuLoopDetection, json_cpu_cbs["spuLoopDetection"].toString());
 
-	xemu_settings->EnhanceCheckBox(ui->accurateXFloat, emu_settings::AccurateXFloat);
-	SubscribeTooltip(ui->accurateXFloat, json_cpu_cbs["accurateXFloat"].toString());
-
 	// Comboboxes
+	ui->xfloatAccuracy->addItem(tr("Accurate"));
+	ui->xfloatAccuracy->addItem(tr("Approximate"));
+	ui->xfloatAccuracy->addItem(tr("Loose"));
+	{
+		std::string accurate_setting = xemu_settings->GetSetting(emu_settings::AccurateXFloat);
+		if (accurate_setting != "true" && accurate_setting != "false")
+			accurate_setting = xemu_settings->GetSettingDefault(emu_settings::AccurateXFloat);
+
+		std::string approximate_setting = xemu_settings->GetSetting(emu_settings::ApproximateXFloat);
+		if (approximate_setting != "true" && approximate_setting != "false")
+			approximate_setting = xemu_settings->GetSettingDefault(emu_settings::ApproximateXFloat);
+
+		if (accurate_setting == "true")
+			ui->xfloatAccuracy->setCurrentIndex(0);
+		else if (approximate_setting == "true")
+			ui->xfloatAccuracy->setCurrentIndex(1);
+		else
+			ui->xfloatAccuracy->setCurrentIndex(2);
+	}
+	QObject::connect(ui->xfloatAccuracy, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), [=](int index)
+	{
+		if (index == 0)
+			xemu_settings->SetSetting(emu_settings::AccurateXFloat, "true");
+		else
+		{
+			xemu_settings->SetSetting(emu_settings::AccurateXFloat, "false");
+			if (index == 1)
+				xemu_settings->SetSetting(emu_settings::ApproximateXFloat, "true");
+			else
+				xemu_settings->SetSetting(emu_settings::ApproximateXFloat, "false");
+		}
+	});
+	SubscribeTooltip(ui->xfloatAccuracy, json_cpu_cbs["accurateXFloat"].toString());
 
 	xemu_settings->EnhanceComboBox(ui->spuBlockSize, emu_settings::SPUBlockSize);
 	SubscribeTooltip(ui->spuBlockSize, json_cpu_cbo["spuBlockSize"].toString());
@@ -294,15 +324,15 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> guiSettings, std:
 
 	connect(ui->spu_llvm, &QAbstractButton::toggled, [this](bool checked)
 	{
-		ui->accurateXFloat->setEnabled(checked);
+		ui->xfloatAccuracy->setEnabled(checked);
 	});
 
 	connect(ui->spu_fast, &QAbstractButton::toggled, [this](bool checked)
 	{
-		ui->accurateXFloat->setEnabled(checked);
+		ui->xfloatAccuracy->setEnabled(checked);
 	});
 
-	ui->accurateXFloat->setEnabled(ui->spu_llvm->isChecked() || ui->spu_fast->isChecked());
+	ui->xfloatAccuracy->setEnabled(ui->spu_llvm->isChecked() || ui->spu_fast->isChecked());
 
 #ifndef LLVM_AVAILABLE
 	ui->ppu_llvm->setEnabled(false);
