@@ -355,7 +355,7 @@ s32 cellSysCacheMount(vm::ptr<CellSysCacheParam> param)
 	std::string cache_id = param->cacheId;
 	strcpy_trunc(param->getCachePath, cache_path);
 
-	cellSysutil.notice("cellSysCacheMount: cache id=%s", cache_id.c_str());
+	cellSysutil.notice("cellSysCacheMount: cache id=%s", cache_id);
 
 	std::lock_guard lock(cache->mtx);
 
@@ -385,7 +385,8 @@ s32 cellSysCacheMount(vm::ptr<CellSysCacheParam> param)
 	}
 	else
 	{
-		if (cache->cache_id == cache_id)
+		// If null term specified at start it must be cleared uncondionally
+		if (!cache_id.empty() && cache->cache_id == cache_id)
 		{
 			return CELL_SYSCACHE_RET_OK_RELAYED;
 		}
