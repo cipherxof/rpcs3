@@ -1587,6 +1587,27 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> guiSettings, std:
 	xemu_settings->EnhanceCheckBox(ui->hookStFunc, emu_settings::HookStaticFuncs);
 	SubscribeTooltip(ui->hookStFunc, json_debug["hookStFunc"].toString());
 
+	// Comboboxes: spu instructions accuracy
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFCGT, emu_settings::SPU_FCGT_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFCMGT, emu_settings::SPU_FCMGT_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFM, emu_settings::SPU_FM_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFNMS, emu_settings::SPU_FNMS_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFMA, emu_settings::SPU_FMA_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFMS, emu_settings::SPU_FMS_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFREST, emu_settings::SPU_FREST_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFRSQEST, emu_settings::SPU_FRSQEST_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFI, emu_settings::SPU_FI_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFA, emu_settings::SPU_FA_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFS, emu_settings::SPU_FS_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFESD, emu_settings::SPU_FESD_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFRDS, emu_settings::SPU_FRDS_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFCEQ, emu_settings::SPU_FCEQ_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyFCMEQ, emu_settings::SPU_FCMEQ_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyCFLTS, emu_settings::SPU_CFLTS_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyCFLTU, emu_settings::SPU_CFLTU_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyCSFLT, emu_settings::SPU_CSFLT_Accuracy);
+	xemu_settings->EnhanceComboBox(ui->spuAccuracyCUFLT, emu_settings::SPU_CUFLT_Accuracy);
+
 	// Layout fix for High Dpi
 	layout()->setSizeConstraint(QLayout::SetFixedSize);
 }
