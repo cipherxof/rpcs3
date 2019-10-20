@@ -914,7 +914,7 @@ bool ppu_interpreter_precise::VMADDFP(ppu_thread& ppu, ppu_opcode_t op)
 	// TODO: Optimize
 	for (u32 i = 0; i < 4; i++)
 	{
-		d[i] = f32(((f64)a[i] * (f64)c[i]) + (f64)b[i]);
+		d[i] = f32(f64{a[i]} * f64{c[i]} + f64{b[i]});
 	}
 
 	return true;
