@@ -710,7 +710,7 @@ namespace rsx
 		auto alpha_ref = rsx::method_registers.alpha_ref() / 255.f;
 		auto rop_control = rsx::method_registers.alpha_test_enabled()? 1u : 0u;
 
-		if (rsx::method_registers.msaa_alpha_to_coverage_enabled() && !supports_hw_a2c)
+		if (rsx::method_registers.msaa_alpha_to_coverage_enabled() && !backend_config.supports_hw_a2c)
 		{
 			// Alpha values generate a coverage mask for order independent blending
 			// Requires hardware AA to work properly (or just fragment sample stage in fragment shaders)
@@ -1682,7 +1682,7 @@ namespace rsx
 			auto &tex = rsx::method_registers.fragment_textures[i];
 			result.texture_scale[i][0] = sampler_descriptors[i]->scale_x;
 			result.texture_scale[i][1] = sampler_descriptors[i]->scale_y;
-			result.texture_scale[i][2] = (f32)tex.remap();  //Debug value
+			result.texture_scale[i][2] = std::bit_cast<f32>(tex.remap());
 
 			if (tex.enabled() && (current_fp_metadata.referenced_textures_mask & (1 << i)))
 			{
@@ -1739,6 +1739,22 @@ namespace rsx
 					}
 					default:
 						LOG_ERROR(RSX, "Depth texture bound to pipeline with unexpected format 0x%X", format);
+					}
+				}
+				else if (!backend_config.supports_hw_renormalization)
+				{
+					switch (format)
+					{
+					case CELL_GCM_TEXTURE_A1R5G5B5:
+					case CELL_GCM_TEXTURE_A4R4G4B4:
+					case CELL_GCM_TEXTURE_D1R5G5B5:
+					case CELL_GCM_TEXTURE_R5G5B5A1:
+					case CELL_GCM_TEXTURE_R5G6B5:
+					case CELL_GCM_TEXTURE_R6G5B5:
+						texture_control |= (1 << 5);
+						break;
+					default:
+						break;
 					}
 				}
 
