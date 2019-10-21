@@ -91,10 +91,10 @@ namespace rsx
 			return get_current_renderer()->label_addr + offset;
 
 		case CELL_GCM_CONTEXT_DMA_DEVICE_RW:
-			return get_current_renderer()->ctxt_addr + offset;
+			return get_current_renderer()->device_addr + offset;
 
 		case CELL_GCM_CONTEXT_DMA_DEVICE_R:
-			return get_current_renderer()->ctxt_addr + offset;
+			return get_current_renderer()->device_addr + offset;
 
 		default:
 		{
@@ -508,10 +508,21 @@ namespace rsx
 					continue;
 				}
 
-				while (Emu.IsPaused() && !m_rsx_thread_exiting)
-					thread_ctrl::wait_for(wait_sleep);
+				if (Emu.IsPaused())
+				{
+					// Save the difference before pause
+					start_time = get_system_time() - start_time;
+					
+					while (Emu.IsPaused() && !m_rsx_thread_exiting)
+					{
+						thread_ctrl::wait_for(wait_sleep);
+					}
 
-				thread_ctrl::wait_for(100); // Hack
+					// Restore difference
+					start_time = get_system_time() - start_time;
+				}
+
+				thread_ctrl::wait_for(100);
 			}
 		});
 
@@ -2347,6 +2358,12 @@ namespace rsx
 		fifo_ret_addr = saved_fifo_ret;
 		std::this_thread::sleep_for(1ms);
 		invalid_command_interrupt_raised = false;
+	}
+
+	u32 thread::get_fifo_cmd()
+	{
+		// Last fifo cmd for logging and utility
+		return fifo_ctrl->last_cmd();
 	}
 
 	void thread::read_barrier(u32 memory_address, u32 memory_range)
