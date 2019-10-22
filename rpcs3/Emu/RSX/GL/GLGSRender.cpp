@@ -1534,7 +1534,20 @@ void GLGSRender::update_draw_state()
 
 	//offset_bias is the constant factor, multiplied by the implementation factor R
 	//offset_scale is the slope factor, multiplied by the triangle slope factor M
-	gl_state.polygon_offset(rsx::method_registers.poly_offset_scale(), rsx::method_registers.poly_offset_bias());
+	{
+		auto slope_factor = rsx::method_registers.poly_offset_scale();
+		const auto constant_factor = rsx::method_registers.poly_offset_bias();
+		if (slope_factor == 0)
+		{
+			slope_factor = constant_factor * 0.5f;
+			if (slope_factor < 0)
+				slope_factor -= 0.05f;
+			else if (slope_factor > 0)
+				slope_factor += 0.05f;
+		}
+
+		gl_state.polygon_offset(slope_factor, constant_factor);
+	}
 
 	if (gl_state.enable(rsx::method_registers.cull_face_enabled(), GL_CULL_FACE))
 	{
