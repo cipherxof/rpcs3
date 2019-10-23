@@ -465,16 +465,11 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> guiSettings, std:
 
 	// Comboboxes
 	xemu_settings->EnhanceComboBox(ui->renderBox, emu_settings::Renderer);
-#ifdef WIN32
 	SubscribeTooltip(ui->renderBox, json_gpu_cbo["renderBox"].toString());
 	SubscribeTooltip(ui->graphicsAdapterBox, json_gpu_cbo["graphicsAdapterBox"].toString());
-#else
-	SubscribeTooltip(ui->renderBox, json_gpu_cbo["renderBox_Linux"].toString());
-	SubscribeTooltip(ui->graphicsAdapterBox, json_gpu_cbo["graphicsAdapterBox_Linux"].toString());
-#endif
+
 	// Change displayed renderer names
 	ui->renderBox->setItemText(ui->renderBox->findData("Null"), render_creator.name_Null);
-	ui->renderBox->setItemText(ui->renderBox->findData("D3D12"), render_creator.name_D3D12);
 
 	xemu_settings->EnhanceComboBox(ui->resBox, emu_settings::Resolution);
 	SubscribeTooltip(ui->resBox, json_gpu_cbo["resBox"].toString());
