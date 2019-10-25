@@ -223,6 +223,30 @@ public:
 	{
 	}
 
+	constexpr b8& operator|=(const bool& rhs)
+	{
+		m_value |= +rhs;
+		return *this;
+	}
+
+	constexpr b8& operator&=(const bool& rhs)
+	{
+		m_value &= +rhs;
+		return *this;
+	}
+
+	constexpr b8& operator^=(const bool& rhs)
+	{
+		m_value ^= +rhs;
+		return *this;
+	}
+
+	constexpr b8& operator=(const bool& rhs)
+	{
+		m_value = +rhs;
+		return *this;
+	}
+
 	constexpr operator bool() const
 	{
 		return m_value != 0;
