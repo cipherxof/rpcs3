@@ -920,3 +920,15 @@ inline constexpr uintmax_t ceil2(T value)
 		}
 	}
 }
+
+template <typename T>
+volatile T& as_volatile(T& t)
+{
+	return const_cast<volatile T&>(t);
+}
+
+template <typename T>
+const volatile T& as_volatile(const T& t)
+{
+	return const_cast<const volatile T&>(t);
+}

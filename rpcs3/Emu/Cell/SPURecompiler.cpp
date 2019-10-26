@@ -7202,6 +7202,30 @@ public:
 		set_vr(op.rt, -(get_vr<f64[2]>(op.ra) * get_vr<f64[2]>(op.rb) + get_vr<f64[2]>(op.rt)));
 	}
 
+	// clamping helpers
+	value_t<f32[4]> clamp_positive_smax(value_t<f32[4]> v)
+	{
+		return eval(bitcast<f32[4]>(min(bitcast<s32[4]>(v),splat<s32[4]>(0x7f7fffff))));
+	}
+
+	value_t<f32[4]> clamp_negative_smax(value_t<f32[4]> v)
+	{
+		return eval(bitcast<f32[4]>(min(bitcast<u32[4]>(v),splat<u32[4]>(0xff7fffff))));
+	}
+
+	value_t<f32[4]> clamp_smax(value_t<f32[4]> v)
+	{
+		return eval(clamp_negative_smax(clamp_positive_smax(v)));
+	}
+
+	// FMA favouring zeros
+	value_t<f32[4]> xmuladd(value_t<f32[4]> a, value_t<f32[4]> b, value_t<f32[4]> c)
+	{
+		const auto aa = bitcast<s32[4]>(fabs(a));
+		const auto ab = bitcast<s32[4]>(fabs(b));
+		return eval(select(min(aa, ab) <= 0x7fffff, c, fmuladd(a, b, c)));
+	}
+
 	void FREST(spu_opcode_t op)
 	{
 		// TODO
@@ -7231,17 +7255,11 @@ public:
 		const auto a = get_vr<f32[4]>(op.ra);
 		const auto b = get_vr<f32[4]>(op.rb);
 
-		// See FCMGT.
 		if (g_cfg.core.spu_approx_xfloat)
 		{
-			const auto ia = bitcast<s32[4]>(fabs(a));
-			const auto ib = bitcast<s32[4]>(fabs(b));
-			const auto nz = eval((ia > 0x7fffff) | (ib > 0x7fffff));
-
-			// Use sign bits to invert abs values before comparison.
-			const auto ca = eval(ia ^ (bitcast<s32[4]>(a) >> 31));
-			const auto cb = eval(ib ^ (bitcast<s32[4]>(b) >> 31));
-			set_vr(op.rt, sext<s32[4]>((ca > cb) & nz));
+			const auto ca = eval(clamp_smax(a));
+			const auto cb = eval(clamp_smax(b));
+			set_vr(op.rt, sext<s32[4]>(fcmp_ord(ca > cb)));
 		}
 		else
 		{
@@ -7257,23 +7275,18 @@ public:
 			return;
 		}
 
-		const auto a = get_vr<f32[4]>(op.ra);
-		const auto b = get_vr<f32[4]>(op.rb);
-		const auto abs_a = fabs(a);
-		const auto abs_b = fabs(b);
+		const auto a = eval(fabs(get_vr<f32[4]>(op.ra)));
+		const auto b = eval(fabs(get_vr<f32[4]>(op.rb)));
 
-		// Actually, it's accurate and can be used as an alternative path for accurate xfloat.
 		if (g_cfg.core.spu_approx_xfloat)
 		{
-			// Compare abs values as integers, but return false if both are denormals or zeros.
-			const auto ia = bitcast<s32[4]>(abs_a);
-			const auto ib = bitcast<s32[4]>(abs_b);
-			const auto nz = eval((ia > 0x7fffff) | (ib > 0x7fffff));
-			set_vr(op.rt, sext<s32[4]>((ia > ib) & nz));
+			const auto ca = eval(clamp_positive_smax(a));
+			const auto cb = eval(clamp_positive_smax(b));
+			set_vr(op.rt, sext<s32[4]>(fcmp_ord(ca > cb)));
 		}
 		else
 		{
-			set_vr(op.rt, sext<s32[4]>(fcmp_ord(abs_a > abs_b)));
+			set_vr(op.rt, sext<s32[4]>(fcmp_ord(a > b)));
 		}
 	}
 
@@ -7289,6 +7302,11 @@ public:
 	{
 		if (g_cfg.core.spu_accurate_xfloat)
 			set_vr(op.rt, get_vr<f64[4]>(op.ra) - get_vr<f64[4]>(op.rb));
+		else if (g_cfg.core.spu_approx_xfloat)
+		{
+			const auto b = eval(clamp_smax(get_vr<f32[4]>(op.rb))); // for #4478
+			set_vr(op.rt, get_vr<f32[4]>(op.ra) - b);
+		}
 		else
 			set_vr(op.rt, get_vr<f32[4]>(op.ra) - get_vr<f32[4]>(op.rb));
 	}
@@ -7301,21 +7319,10 @@ public:
 		{
 			const auto a = get_vr<f32[4]>(op.ra);
 			const auto b = get_vr<f32[4]>(op.rb);
-			const auto m = eval(a * b);
-			const auto abs_a = bitcast<s32[4]>(fabs(a));
-			const auto abs_b = bitcast<s32[4]>(fabs(b));
-			const auto abs_m = bitcast<s32[4]>(fabs(m));
-			const auto sign_a = eval(bitcast<s32[4]>(a) & 0x80000000);
-			const auto sign_b = eval(bitcast<s32[4]>(b) & 0x80000000);
-			const auto smod_m = eval(bitcast<s32[4]>(m) & 0x7fffffff);
-			const auto fmax_m = eval((sign_a ^ sign_b) | 0x7fffffff);
-			const auto nzero = eval((abs_a > 0x7fffff) & (abs_b > 0x7fffff) & (abs_m > 0x7fffff));
-
-			// If m produces Inf or NaN, flush it to max xfloat with appropriate sign
-			const auto clamp = select(smod_m > 0x7f7fffff, bitcast<f32[4]>(fmax_m), m);
-
-			// If a, b, or a * b is a denorm or zero, return zero
-			set_vr(op.rt, select(nzero, clamp, fsplat<f32[4]>(0.)));
+			const auto aa = bitcast<s32[4]>(fabs(a));
+			const auto ab = bitcast<s32[4]>(fabs(b));
+			const auto m = eval(select(min(aa, ab) <= 0x7fffff, fsplat<f32[4]>(0.), a * b));
+			set_vr(op.rt, clamp_smax(m));
 		}
 		else
 			set_vr(op.rt, get_vr<f32[4]>(op.ra) * get_vr<f32[4]>(op.rb));
@@ -7378,44 +7385,32 @@ public:
 			set_vr(op.rt, sext<s32[4]>(fcmp_ord(fabs(get_vr<f32[4]>(op.ra)) == fabs(get_vr<f32[4]>(op.rb)))));
 	}
 
-	// Multiply and return zero if any of the arguments is in the xfloat range.
-	value_t<f32[4]> mzero_if_xtended(value_t<f32[4]> a, value_t<f32[4]> b)
-	{
-		// Compare absolute values with max positive float in normal range.
-		const auto aa = bitcast<s32[4]>(fabs(a));
-		const auto ab = bitcast<s32[4]>(fabs(b));
-		return eval(select(max(aa, ab) > 0x7f7fffff, fsplat<f32[4]>(0.), a * b));
-	}
-
 	void FNMS(spu_opcode_t op)
 	{
-		// See FMA.
 		if (g_cfg.core.spu_accurate_xfloat)
 			set_vr(op.rt4, -fmuladd(get_vr<f64[4]>(op.ra), get_vr<f64[4]>(op.rb), eval(-get_vr<f64[4]>(op.rc))));
 		else if (g_cfg.core.spu_approx_xfloat)
-			set_vr(op.rt4, get_vr<f32[4]>(op.rc) - mzero_if_xtended(get_vr<f32[4]>(op.ra), get_vr<f32[4]>(op.rb)));
+			set_vr(op.rt4, -xmuladd(get_vr<f32[4]>(op.ra), get_vr<f32[4]>(op.rb), eval(-get_vr<f32[4]>(op.rc))));
 		else
 			set_vr(op.rt4, get_vr<f32[4]>(op.rc) - get_vr<f32[4]>(op.ra) * get_vr<f32[4]>(op.rb));
 	}
 
 	void FMA(spu_opcode_t op)
 	{
-		// Hardware FMA produces the same result as multiple + add on the limited double range (xfloat).
 		if (g_cfg.core.spu_accurate_xfloat)
 			set_vr(op.rt4, fmuladd(get_vr<f64[4]>(op.ra), get_vr<f64[4]>(op.rb), get_vr<f64[4]>(op.rc)));
 		else if (g_cfg.core.spu_approx_xfloat)
-			set_vr(op.rt4, mzero_if_xtended(get_vr<f32[4]>(op.ra), get_vr<f32[4]>(op.rb)) + get_vr<f32[4]>(op.rc));
+			set_vr(op.rt4, xmuladd(get_vr<f32[4]>(op.ra), get_vr<f32[4]>(op.rb), get_vr<f32[4]>(op.rc)));
 		else
 			set_vr(op.rt4, get_vr<f32[4]>(op.ra) * get_vr<f32[4]>(op.rb) + get_vr<f32[4]>(op.rc));
 	}
 
 	void FMS(spu_opcode_t op)
 	{
-		// See FMA.
 		if (g_cfg.core.spu_accurate_xfloat)
 			set_vr(op.rt4, fmuladd(get_vr<f64[4]>(op.ra), get_vr<f64[4]>(op.rb), eval(-get_vr<f64[4]>(op.rc))));
 		else if (g_cfg.core.spu_approx_xfloat)
-			set_vr(op.rt4, mzero_if_xtended(get_vr<f32[4]>(op.ra), get_vr<f32[4]>(op.rb)) - get_vr<f32[4]>(op.rc));
+			set_vr(op.rt4, xmuladd(get_vr<f32[4]>(op.ra), get_vr<f32[4]>(op.rb), eval(-get_vr<f32[4]>(op.rc))));
 		else
 			set_vr(op.rt4, get_vr<f32[4]>(op.ra) * get_vr<f32[4]>(op.rb) - get_vr<f32[4]>(op.rc));
 	}
