@@ -11,6 +11,11 @@ target_link_libraries(rpcs3_emu
 	PUBLIC
 		3rdparty::libevdev)
 
+
+find_package(Threads REQUIRED)
+target_link_libraries(rpcs3_emu
+	PUBLIC Threads::Threads)
+
 # For stdafx.h
 target_include_directories(rpcs3_emu
 	PUBLIC
@@ -61,6 +66,7 @@ target_sources(rpcs3_emu PRIVATE
 	../Crypto/lz.cpp
 	../Crypto/md5.cpp
 	../Crypto/sha1.cpp
+	../Crypto/sha256.cpp
 	../Crypto/unedat.cpp
 	../Crypto/unpkg.cpp
 	../Crypto/unself.cpp
@@ -84,19 +90,22 @@ target_sources(rpcs3_emu PRIVATE
 	Audio/AL/OpenALBackend.cpp
 	Audio/ALSA/ALSABackend.cpp
 	Audio/Pulse/PulseBackend.cpp
-	Audio/XAudio2/XAudio27Backend.cpp
-	Audio/XAudio2/XAudio28Backend.cpp
-	Audio/XAudio2/XAudio2Backend.cpp
+	Audio/FAudio/FAudioBackend.cpp
 )
 
 if(WIN32)
+	target_sources(rpcs3_emu PRIVATE
+		Audio/XAudio2/XAudio27Backend.cpp
+		Audio/XAudio2/XAudio28Backend.cpp
+		Audio/XAudio2/XAudio2Backend.cpp
+	)
 	# Slimmed down version of minidx9 for XAudio2_7 only
 	include_directories(BEFORE "${RPCS3_SRC_DIR}/../3rdparty/XAudio2_7")
 endif()
 
 target_link_libraries(rpcs3_emu
 	PUBLIC
-		3rdparty::alsa 3rdparty::pulse 3rdparty::openal)
+		3rdparty::alsa 3rdparty::pulse 3rdparty::openal 3rdparty::faudio)
 
 
 # Cell
@@ -379,23 +388,6 @@ if(TARGET 3rdparty_vulkan)
 	)
 endif()
 
-if (WIN32)
-	target_sources(rpcs3_emu PRIVATE
-		RSX/D3D12/D3D12Buffer.cpp
-		RSX/D3D12/D3D12CommonDecompiler.cpp
-		RSX/D3D12/D3D12Formats.cpp
-		RSX/D3D12/D3D12FragmentProgramDecompiler.cpp
-		RSX/D3D12/D3D12GSRender.cpp
-		RSX/D3D12/D3D12MemoryHelpers.cpp
-		RSX/D3D12/D3D12Overlay.cpp
-		RSX/D3D12/D3D12PipelineState.cpp
-		RSX/D3D12/D3D12RenderTargetSets.cpp
-		RSX/D3D12/D3D12Texture.cpp
-		RSX/D3D12/D3D12Utils.cpp
-		RSX/D3D12/D3D12VertexProgramDecompiler.cpp
-	)
-endif()
-
 target_link_libraries(rpcs3_emu
 	PUBLIC
 		3rdparty::ffmpeg 3rdparty::cereal
@@ -404,7 +396,7 @@ target_link_libraries(rpcs3_emu
 		3rdparty::libusb
 	PRIVATE
 		3rdparty::gsl 3rdparty::xxhash
-		3rdparty::dx12)
+)
 
 
 # Setup cotire

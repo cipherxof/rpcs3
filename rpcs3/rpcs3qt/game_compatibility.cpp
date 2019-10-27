@@ -115,8 +115,11 @@ void game_compatibility::RequestCompatibility(bool online)
 
 	if (QSslSocket::supportsSsl() == false)
 	{
-		LOG_ERROR(GENERAL, "Can not retrieve the online database! Please make sure your system supports SSL.");
-		QMessageBox::warning(nullptr, tr("Warning!"), tr("Can not retrieve the online database! Please make sure your system supports SSL."));
+		LOG_ERROR(GENERAL, "Can not retrieve the online database! Please make sure your system supports SSL. Visit our quickstart guide for more information: https://rpcs3.net/quickstart");
+		const QString message = tr("Can not retrieve the online database!<br>Please make sure your system supports SSL.<br>Visit our <a href='https://rpcs3.net/quickstart'>quickstart guide</a> for more information.");
+		QMessageBox box(QMessageBox::Icon::Warning, tr("Warning!"), message, QMessageBox::StandardButton::Ok, nullptr);
+		box.setTextFormat(Qt::RichText);
+		box.exec();
 		return;
 	}
 
@@ -127,10 +130,7 @@ void game_compatibility::RequestCompatibility(bool online)
 	QNetworkReply* network_reply = m_network_access_manager->get(m_network_request);
 
 	// Show Progress
-	m_progress_dialog = new progress_dialog(tr(".Please wait."), tr("Abort"), 0, 100);
-	m_progress_dialog->setWindowTitle(tr("Downloading Database"));
-	m_progress_dialog->setFixedWidth(QLabel("This is the very length of the progressbar due to hidpi reasons.").sizeHint().width());
-	m_progress_dialog->setValue(0);
+	m_progress_dialog = new progress_dialog(tr("Downloading Database"), tr(".Please wait."), tr("Abort"), 0, 100);
 	m_progress_dialog->show();
 
 	// Animate progress dialog a bit more
@@ -164,9 +164,22 @@ void game_compatibility::RequestCompatibility(bool online)
 		m_progress_dialog->setValue(bytesReceived);
 	});
 
-	// Handle response according to its contents
-	connect(network_reply, &QNetworkReply::finished, [=]()
+	// Handle network error
+	connect(network_reply, QOverload<QNetworkReply::NetworkError>::of(&QNetworkReply::error), [=](QNetworkReply::NetworkError error)
 	{
+		if (error == QNetworkReply::NoError)
+		{
+			return;
+		}
+
+		if (error != QNetworkReply::OperationCanceledError)
+		{
+			// We failed to retrieve a new database, therefore refresh gamelist to old state
+			const QString error = network_reply->errorString();
+			Q_EMIT DownloadError(error);
+			LOG_ERROR(GENERAL, "Compatibility error: { Network Error - %s }", sstr(error));
+		}
+
 		// Clean up Progress Dialog
 		if (m_progress_dialog)
 		{
@@ -177,20 +190,25 @@ void game_compatibility::RequestCompatibility(bool online)
 			m_progress_timer->stop();
 		}
 
-		// Handle Errors
-		if (network_reply->error() == QNetworkReply::OperationCanceledError)
+		network_reply->deleteLater();
+	});
+
+	// Handle response according to its contents
+	connect(network_reply, &QNetworkReply::finished, [=]()
+	{
+		if (network_reply->error() != QNetworkReply::NoError)
 		{
-			network_reply->deleteLater();
 			return;
 		}
-		else if (network_reply->error() != QNetworkReply::NoError)
+
+		// Clean up Progress Dialog
+		if (m_progress_dialog)
 		{
-			// We failed to retrieve a new database, therefore refresh gamelist to old state
-			QString error = network_reply->errorString();
-			network_reply->deleteLater();
-			Q_EMIT DownloadError(error);
-			LOG_ERROR(GENERAL, "Compatibility error: { Network Error - %s }", sstr(error));
-			return;
+			m_progress_dialog->close();
+		}
+		if (m_progress_timer)
+		{
+			m_progress_timer->stop();
 		}
 
 		LOG_NOTICE(GENERAL, "Compatibility notice: { Database download finished }");

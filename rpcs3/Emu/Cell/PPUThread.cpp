@@ -67,8 +67,8 @@ const bool s_use_ssse3 =
 extern u64 get_guest_system_time();
 
 extern atomic_t<const char*> g_progr;
-extern atomic_t<u64> g_progr_ptotal;
-extern atomic_t<u64> g_progr_pdone;
+extern atomic_t<u32> g_progr_ptotal;
+extern atomic_t<u32> g_progr_pdone;
 
 enum class join_status : u32
 {
@@ -927,8 +927,6 @@ void ppu_thread::stack_pop_verbose(u32 addr, u32 size) noexcept
 
 	LOG_ERROR(PPU, "Invalid thread" HERE);
 }
-
-const ppu_decoder<ppu_itype> s_ppu_itype;
 
 extern u64 get_timebased_time();
 extern ppu_function_t ppu_get_syscall(u64 code);

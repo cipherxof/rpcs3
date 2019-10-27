@@ -30,6 +30,58 @@ add_library(3rdparty_zlib INTERFACE)
 target_link_libraries(3rdparty_zlib INTERFACE ${ZLIB_LIBRARY})
 target_include_directories(3rdparty_zlib INTERFACE ${ZLIB_INCLUDE_DIR})
 
+# 7z sdk
+if(WIN32)
+	add_library(3rdparty_7z STATIC EXCLUDE_FROM_ALL
+		7z/Sha256.c
+		7z/Ppmd7Dec.c
+		7z/XzDec.c
+		7z/XzEnc.c
+		7z/Lzma2Dec.c
+		7z/XzCrc64.c
+		7z/DllSecur.c
+		7z/Lzma2DecMt.c
+		7z/BraIA64.c
+		7z/7zFile.c
+		7z/7zStream.c
+		7z/Lzma86Enc.c
+		7z/Threads.c
+		7z/7zAlloc.c
+		7z/LzmaEnc.c
+		7z/MtCoder.c
+		7z/Lzma86Dec.c
+		7z/Sort.c
+		7z/LzFindMt.c
+		7z/7zDec.c
+		7z/Bcj2.c
+		7z/Ppmd7.c
+		7z/Bra86.c
+		7z/Bcj2Enc.c
+		7z/7zBuf.c
+		7z/Aes.c
+		7z/AesOpt.c
+		7z/XzCrc64Opt.c
+		7z/7zArcIn.c
+		7z/Lzma2Enc.c
+		7z/Bra.c
+		7z/7zCrcOpt.c
+		7z/7zBuf2.c
+		7z/LzFind.c
+		7z/Ppmd7Enc.c
+		7z/CpuArch.c
+		7z/Delta.c
+		7z/XzIn.c
+		7z/Alloc.c
+		7z/Xz.c
+		7z/LzmaDec.c
+		7z/LzmaLib.c
+		7z/7zCrc.c
+		7z/MtDec.c)
+	target_include_directories(3rdparty_7z INTERFACE 7z)
+else()
+	add_library(3rdparty_7z INTERFACE)
+endif()
+
 # libPNG
 # Select the version of libpng to use, default is builtin
 if (NOT USE_SYSTEM_LIBPNG)
@@ -285,6 +337,19 @@ add_library(3rdparty_openal INTERFACE)
 target_include_directories(3rdparty_openal INTERFACE ${OPENAL_INCLUDE_DIR})
 target_link_libraries(3rdparty_openal INTERFACE ${OPENAL_LIBRARY})
 
+# FAudio
+set(FAUDIO_TARGET 3rdparty_dummy_lib)
+if(USE_FAUDIO)
+	# FAudio depends on SDL2
+	pkg_check_modules(SDL2 sdl2)
+	if (NOT SDL2_FOUND OR SDL2_VERSION VERSION_LESS 2.0.9)
+		message("-- RPCS3: FAudio requires SDL 2.0.9 or newer.")
+	else()
+		add_subdirectory(FAudio EXCLUDE_FROM_ALL)
+		target_compile_definitions(FAudio INTERFACE -DHAVE_FAUDIO)
+		set(FAUDIO_TARGET FAudio)
+	endif()
+endif()
 
 # FFMPEG
 add_library(3rdparty_ffmpeg INTERFACE)
@@ -336,13 +401,6 @@ else()
 endif()
 
 
-# dx12
-add_library(3rdparty_dx12 INTERFACE)
-if (WIN32)
-	target_link_libraries(3rdparty_dx12 INTERFACE dxgi.lib d2d1.lib dwrite.lib)
-endif()
-
-
 # GLEW
 add_library(3rdparty_glew INTERFACE)
 if(NOT MSVC)
@@ -358,6 +416,7 @@ include(llvm.cmake)
 # add nice ALIAS targets for ease of use
 add_library(3rdparty::libusb ALIAS usb-1.0-static)
 add_library(3rdparty::zlib ALIAS 3rdparty_zlib)
+add_library(3rdparty::7z ALIAS 3rdparty_7z)
 add_library(3rdparty::pugixml ALIAS pugixml)
 add_library(3rdparty::yaml-cpp ALIAS yaml-cpp)
 add_library(3rdparty::xxhash ALIAS xxhash)
@@ -370,9 +429,9 @@ add_library(3rdparty::stblib ALIAS 3rdparty_stblib)
 add_library(3rdparty::discord-rpc ALIAS 3rdparty_discord-rpc)
 add_library(3rdparty::alsa ALIAS ${ALSA_TARGET})
 add_library(3rdparty::pulse ALIAS ${PULSE_TARGET})
+add_library(3rdparty::faudio ALIAS ${FAUDIO_TARGET})
 add_library(3rdparty::libevdev ALIAS ${LIBEVDEV_TARGET})
 add_library(3rdparty::vulkan ALIAS ${VULKAN_TARGET})
 add_library(3rdparty::openal ALIAS 3rdparty_openal)
 add_library(3rdparty::ffmpeg ALIAS 3rdparty_ffmpeg)
-add_library(3rdparty::dx12 ALIAS 3rdparty_dx12)
 add_library(3rdparty::glew ALIAS 3rdparty_glew)

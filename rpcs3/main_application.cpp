@@ -31,13 +31,14 @@
 #ifdef HAVE_PULSE
 #include "Emu/Audio/Pulse/PulseBackend.h"
 #endif
+#ifdef HAVE_FAUDIO
+#include "Emu/Audio/FAudio/FAudioBackend.h"
+#endif
 
 #include "Emu/RSX/GSRender.h"
 #include "Emu/RSX/Null/NullGSRender.h"
 #include "Emu/RSX/GL/GLGSRender.h"
-#ifdef _MSC_VER
-#include "Emu/RSX/D3D12/D3D12GSRender.h"
-#endif
+
 #if defined(_WIN32) || defined(HAVE_VULKAN)
 #include "Emu/RSX/VK/VKGSRender.h"
 #endif
@@ -137,13 +138,6 @@ EmuCallbacks main_application::CreateCallbacks()
 			break;
 		}
 #endif
-#ifdef _MSC_VER
-		case video_renderer::dx12:
-		{
-			g_fxo->init<rsx::thread, named_thread<D3D12GSRender>>();
-			break;
-		}
-#endif
 		default: fmt::throw_exception("Invalid video renderer: %s" HERE, type);
 		}
 	};
@@ -164,6 +158,9 @@ EmuCallbacks main_application::CreateCallbacks()
 #endif
 
 		case audio_renderer::openal: return std::make_shared<OpenALBackend>();
+#ifdef HAVE_FAUDIO
+		case audio_renderer::faudio: return std::make_shared<FAudioBackend>();
+#endif
 		default: fmt::throw_exception("Invalid audio renderer: %s" HERE, type);
 		}
 	};

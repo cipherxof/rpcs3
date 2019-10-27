@@ -1145,24 +1145,12 @@ void spu_thread::cpu_task()
 
 	if (jit)
 	{
-		// Register SPU runtime user
-		spu_runtime::passive_lock _passive_lock(jit->get_runtime());
-
 		while (true)
 		{
 			if (UNLIKELY(state))
 			{
 				if (check_state())
-				{
-					if (state & cpu_flag::jit_return)
-					{
-						// Handle jit_return as a special case
-						jit->get_runtime().handle_return(this);
-						continue;
-					}
-
 					break;
-				}
 			}
 
 			spu_runtime::g_gateway(*this, vm::_ptr<u8>(offset), nullptr);
@@ -1227,7 +1215,7 @@ spu_thread::spu_thread(vm::addr_t ls, lv2_spu_group* group, u32 index, std::stri
 
 	if (g_cfg.core.spu_decoder == spu_decoder_type::llvm)
 	{
-		jit = spu_recompiler_base::make_llvm_recompiler();
+		jit = spu_recompiler_base::make_fast_llvm_recompiler();
 	}
 
 	if (g_cfg.core.spu_decoder != spu_decoder_type::fast && g_cfg.core.spu_decoder != spu_decoder_type::precise)
@@ -1680,7 +1668,7 @@ void spu_thread::do_mfc(bool wait)
 	u32 fence = 0;
 
 	// Process enqueued commands
-	std::remove_if(mfc_queue + 0, mfc_queue + mfc_size, [&](spu_mfc_cmd& args)
+	static_cast<void>(std::remove_if(mfc_queue + 0, mfc_queue + mfc_size, [&](spu_mfc_cmd& args)
 	{
 		// Select tag bit in the tag mask or the stall mask
 		const u32 mask = utils::rol32(1, args.tag);
@@ -1753,7 +1741,7 @@ void spu_thread::do_mfc(bool wait)
 
 		removed++;
 		return true;
-	});
+	}));
 
 	mfc_size -= removed;
 	mfc_barrier = barrier;
