@@ -11,9 +11,11 @@
 #if defined(_MSC_VER)
 #define __SSSE3__  1
 #define __SSE4_1__ 1
+#define AVX2_FUNC
 #define SSE4_1_FUNC
 #else
 #define __sse_intrin static FORCE_INLINE
+#define AVX2_FUNC __attribute__((__target__("avx2")))
 #define SSE4_1_FUNC __attribute__((__target__("sse4.1")))
 #endif // _MSC_VER
 
@@ -60,6 +62,7 @@ __sse_intrin __m128i __mm_min_epu16(__m128i opd, __m128i opa)
 
 const bool s_use_ssse3 = utils::has_ssse3();
 const bool s_use_sse4_1 = utils::has_sse41();
+const bool s_use_avx2 = utils::has_avx2();
 
 namespace
 {
@@ -759,6 +762,89 @@ namespace
 
 	struct primitive_restart_impl
 	{
+		AVX2_FUNC
+		static
+		std::tuple<u16, u16, u32> upload_u16_swapped_avx2(const void *src, void *dst, u32 count, u16 restart_index)
+		{
+			u32 dst_index = 0;
+
+			const __m256i mask = _mm256_set_epi8(
+				0x1E, 0x1F, 0x1C, 0x1D,
+				0x1A, 0x1B, 0x18, 0x19,
+				0x16, 0x17, 0x14, 0x15,
+				0x12, 0x13, 0x10, 0x11,
+				0xE, 0xF, 0xC, 0xD,
+				0xA, 0xB, 0x8, 0x9,
+				0x6, 0x7, 0x4, 0x5,
+				0x2, 0x3, 0x0, 0x1);
+
+			auto src_stream = (const __m256i*)src;
+			auto dst_stream = (__m256i*)dst;
+
+			__m256i restart = _mm256_set1_epi16(restart_index);
+			__m256i min = _mm256_set1_epi16(0xffff);
+			__m256i max = _mm256_set1_epi16(0);
+
+			const auto iterations = count / 8;
+			for (unsigned n = 0; n < iterations; ++n)
+			{
+				const __m256i raw = _mm256_loadu_si256(src_stream++);
+				const __m256i value = _mm256_shuffle_epi8(raw, mask);
+				const __m256i mask = _mm256_cmpeq_epi16(restart, value);
+				const __m256i tmp = _mm256_andnot_si256(mask, value);
+				max = _mm256_max_epu16(max, tmp);
+				min = _mm256_min_epu16(min, value);
+				_mm256_storeu_si256(dst_stream++, value);
+			}
+
+			const __m256i mask_step1 = _mm256_set_epi8(
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0x1F, 0x1E, 0x1D, 0x1C, 0x1B, 0x1A, 0x19, 0x18,
+				0x17, 0x16, 0x15, 0x14, 0x13, 0x12, 0x11, 0x10);
+
+			const __m256i mask_step2 = _mm256_set_epi8(
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0xF, 0xE, 0xD, 0xC, 0xB, 0xA, 0x9, 0x8);
+
+			const __m256i mask_step3 = _mm256_set_epi8(
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0x7, 0x6, 0x5, 0x4);
+
+			const __m256i mask_step4 = _mm256_set_epi8(
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0x3, 0x2);
+
+			__m256i tmp = _mm256_shuffle_epi8(min, mask_step1);
+			min = _mm256_min_epu16(min, tmp);
+			tmp = _mm256_shuffle_epi8(min, mask_step2);
+			min = _mm256_min_epu16(min, tmp);
+			tmp = _mm256_shuffle_epi8(min, mask_step3);
+			min = _mm256_min_epu16(min, tmp);
+			tmp = _mm256_shuffle_epi8(min, mask_step4);
+			min = _mm256_min_epu16(min, tmp);
+
+			tmp = _mm256_shuffle_epi8(max, mask_step1);
+			max = _mm256_max_epu16(max, tmp);
+			tmp = _mm256_shuffle_epi8(max, mask_step2);
+			max = _mm256_max_epu16(max, tmp);
+			tmp = _mm256_shuffle_epi8(max, mask_step3);
+			max = _mm256_max_epu16(max, tmp);
+			tmp = _mm256_shuffle_epi8(max, mask_step4);
+			max = _mm256_max_epu16(max, tmp);
+
+			const u16 min_index = u16(_mm_cvtsi128_si32(_mm256_castsi256_si128(min)) & 0xFFFF);
+			const u16 max_index = u16(_mm_cvtsi128_si32(_mm256_castsi256_si128(max)) & 0xFFFF);
+
+			return std::make_tuple(min_index, max_index, count);
+		}
+
 		SSE4_1_FUNC
 		static
 		std::tuple<u16, u16, u32> upload_u16_swapped_sse4_1(const void *src, void *dst, u32 count, u16 restart_index)
@@ -885,17 +971,28 @@ namespace
 			u32 written;
 			u32 remaining = src.size();
 
-			if (s_use_sse4_1 && remaining >= 32 && !skip_restart)
+			if (remaining >= 32 && !skip_restart)
 			{
 				if constexpr (std::is_same<T, u32>::value)
 				{
-					const auto count = (remaining & ~0x3);
-					std::tie(min_index, max_index, written) = upload_u32_swapped_sse4_1(src.data(), dst.data(), count, restart_index);
+					if (s_use_sse4_1)
+					{
+						const auto count = (remaining & ~0x3);
+						std::tie(min_index, max_index, written) = upload_u32_swapped_sse4_1(src.data(), dst.data(), count, restart_index);
+					}
 				}
 				else if constexpr (std::is_same<T, u16>::value)
 				{
-					const auto count = (remaining & ~0x7);
-					std::tie(min_index, max_index, written) = upload_u16_swapped_sse4_1(src.data(), dst.data(), count, restart_index);
+					if (s_use_avx2)
+					{
+						const auto count = (remaining & ~0xf);
+						std::tie(min_index, max_index, written) = upload_u16_swapped_avx2(src.data(), dst.data(), count, restart_index);
+					}
+					else if (s_use_sse4_1)
+					{
+						const auto count = (remaining & ~0x7);
+						std::tie(min_index, max_index, written) = upload_u16_swapped_sse4_1(src.data(), dst.data(), count, restart_index);
+					}
 				}
 				else
 				{
