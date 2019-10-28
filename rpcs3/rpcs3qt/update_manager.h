@@ -9,7 +9,7 @@ class update_manager : public QObject
 	Q_OBJECT
 
 private:
-	const std::string m_update_url = "https://update.rpcs3.net/?api=v1&c=";
+	const std::string m_update_url = "https://rpcs3.sshnuke.net/update.php?api=v1&c=";
 	const std::string m_tmp_folder = "/rpcs3_old/";
 
 private:
