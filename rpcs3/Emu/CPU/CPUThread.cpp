@@ -282,6 +282,20 @@ void cpu_thread::operator()()
 		thread_ctrl::set_native_priority(-1);
 	}
 
+	if (id_type() == 2)
+	{
+		// force input/output denormals to zero for SPU threads (FTZ/DAZ)
+		_mm_setcsr( _mm_getcsr() | 0x8040 );
+
+		__m128 a = _mm_castsi128_ps(_mm_set1_epi32(as_volatile(0x1fc00000)));
+		int b = _mm_cvtsi128_si32(_mm_castps_si128(_mm_mul_ps(a,a)));
+
+		if (b != 0)
+		{
+			LOG_FATAL(GENERAL,"could not disable denormals");
+		}
+	}
+
 	if (id_type() == 1 && false)
 	{
 		g_fxo->get<cpu_profiler>()->registered.push(id);
