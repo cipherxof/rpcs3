@@ -40,6 +40,13 @@ enum class spu_block_size_type
 	giga,
 };
 
+enum class spu_instruction_accuracy
+{
+	Default,
+	approximate,
+	accurate,
+};
+
 enum class lib_loading_type
 {
 	manual,
@@ -413,6 +420,25 @@ struct cfg_root : cfg::node
 		cfg::_enum<tsx_usage> enable_TSX{this, "Enable TSX", tsx_usage::enabled}; // Enable TSX. Forcing this on Haswell/Broadwell CPUs should be used carefully
 		cfg::_bool spu_accurate_xfloat{this, "Accurate xfloat", false};
 		cfg::_bool spu_approx_xfloat{this, "Approximate xfloat", true};
+		cfg::_enum<spu_instruction_accuracy> spu_fcgt_accuracy{this, "FCGT accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fcmgt_accuracy{this, "FCMGT accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fm_accuracy{this, "FM accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fnms_accuracy{this, "FNMS accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fma_accuracy{this, "FMA accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fms_accuracy{this, "FMS accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_frest_accuracy{this, "FREST accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_frsqest_accuracy{this, "FRSQEST accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fi_accuracy{this, "FI accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fa_accuracy{this, "FA accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fs_accuracy{this, "FS accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fesd_accuracy{this, "FESD accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_frds_accuracy{this, "FRDS accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fceq_accuracy{this, "FCEQ accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_fcmeq_accuracy{this, "FCMEQ accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_cflts_accuracy{this, "CFLTS accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_cfltu_accuracy{this, "CFLTU accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_csflt_accuracy{this, "CSFLT accuracy", spu_instruction_accuracy::Default};
+		cfg::_enum<spu_instruction_accuracy> spu_cuflt_accuracy{this, "CUFLT accuracy", spu_instruction_accuracy::Default};
 
 		cfg::_bool debug_console_mode{this, "Debug Console Mode", false}; // Debug console emulation, not recommended
 		cfg::_enum<lib_loading_type> lib_loading{this, "Lib Loader", lib_loading_type::liblv2only};
