@@ -39,6 +39,11 @@ enum CellSysutilParamId: s32
 	// Strings
 	CELL_SYSUTIL_SYSTEMPARAM_ID_NICKNAME                        = 0x0113,
 	CELL_SYSUTIL_SYSTEMPARAM_ID_CURRENT_USERNAME                = 0x0131,
+	// Unknown strings
+	CELL_SYSUTIL_SYSTEMPARAM_ID_x1008                           = 0x1008,
+	CELL_SYSUTIL_SYSTEMPARAM_ID_x1011                           = 0x1011,
+	CELL_SYSUTIL_SYSTEMPARAM_ID_x1012                           = 0x1012, // Equal meaning to x1011
+	CELL_SYSUTIL_SYSTEMPARAM_ID_x1024                           = 0x1024,
 };
 
 enum CellSysutilLang : s32
@@ -63,6 +68,12 @@ enum CellSysutilLang : s32
 	CELL_SYSUTIL_LANG_PORTUGUESE_BR  = 17, // FW 4.00
 	CELL_SYSUTIL_LANG_ENGLISH_GB     = 18, // FW 4.00
 	CELL_SYSUTIL_LANG_TURKISH        = 19, // FW 4.30
+};
+
+enum
+{
+	CELL_SYSUTIL_SYSTEMPARAM_NICKNAME_SIZE = 0x80,
+	CELL_SYSUTIL_SYSTEMPARAM_CURRENT_USERNAME_SIZE = 0x40
 };
 
 enum
@@ -141,19 +152,24 @@ enum
 	CELL_SYSUTIL_PAD_RUMBLE_ON   = 1,
 };
 
-enum
+enum CellSysCacheError : u32
 {
-	CELL_SYSCACHE_RET_OK_CLEARED      = 0,
-	CELL_SYSCACHE_RET_OK_RELAYED      = 1,
-
-	CELL_SYSCACHE_ID_SIZE             = 32,
-	CELL_SYSCACHE_PATH_MAX            = 1055,
-
 	CELL_SYSCACHE_ERROR_ACCESS_ERROR  = 0x8002bc01, // I don't think we need this
 	CELL_SYSCACHE_ERROR_INTERNAL      = 0x8002bc02, // Not really useful, if we run out of HDD space sys_fs should handle that
 
 	CELL_SYSCACHE_ERROR_PARAM         = 0x8002bc03,
 	CELL_SYSCACHE_ERROR_NOTMOUNTED    = 0x8002bc04, // We don't really need to simulate the mounting, so this is probably useless
+};
+
+enum
+{
+	CELL_SYSCACHE_ID_SIZE             = 32,
+	CELL_SYSCACHE_PATH_MAX            = 1055,
+};
+
+enum
+{
+	CELL_SYSCACHE_RET_OK_RELAYED = 1
 };
 
 enum CellSysutilBgmPlaybackStatusState
