@@ -11,8 +11,13 @@
 #if defined(_MSC_VER)
 #define __SSSE3__  1
 #define __SSE4_1__ 1
+#define __AVX2__ 1
+#define AVX2_FUNC
+#define SSE4_1_FUNC
 #else
 #define __sse_intrin static FORCE_INLINE
+#define AVX2_FUNC __attribute__((__target__("avx2")))
+#define SSE4_1_FUNC __attribute__((__target__("sse4.1")))
 #endif // _MSC_VER
 
 // NOTE: Clang does not allow to redefine missing intrinsics
@@ -756,9 +761,9 @@ namespace
 
 	struct primitive_restart_impl
 	{
-#if __AVX2__
+		AVX2_FUNC
 		static
-		std::tuple<u16, u16, u32> upload_u16_swapped_avx2(const void *src, void *dst, u32 count, u32 restart_index)
+		std::tuple<u16, u16, u32> upload_u16_swapped_avx2(const void *src, void *dst, u32 count, u16 restart_index)
 		{
 			u32 dst_index = 0;
 
@@ -838,10 +843,10 @@ namespace
 
 			return std::make_tuple(min_index, max_index, count);
 		}
-#endif
 
+		SSE4_1_FUNC
 		static
-		std::tuple<u16, u16, u32> upload_u16_swapped_sse4_1(const void *src, void *dst, u32 count, u32 restart_index)
+		std::tuple<u16, u16, u32> upload_u16_swapped_sse4_1(const void *src, void *dst, u32 count, u16 restart_index)
 		{
 			u32 dst_index = 0;
 
@@ -902,6 +907,7 @@ namespace
 			return std::make_tuple(min_index, max_index, count);
 		}
 
+		SSE4_1_FUNC
 		static
 		std::tuple<u32, u32, u32> upload_u32_swapped(const void *src, void *dst, u32 count, u32 restart_index)
 		{
@@ -958,13 +964,12 @@ namespace
 
 		template<typename T>
 		static
-		std::tuple<T, T, u32> upload_untouched(gsl::span<to_be_t<const T>> src, gsl::span<T> dst, u32 restart_index, bool skip_restart)
+		std::tuple<T, T, u32> upload_untouched(gsl::span<to_be_t<const T>> src, gsl::span<T> dst, T restart_index, bool skip_restart)
 		{
 			T min_index, max_index;
 			u32 written;
 			u32 remaining = src.size();
 
-#if __AVX2__
 			if (s_use_avx2 && remaining >= 32 && !skip_restart)
 			{
 				if constexpr (std::is_same<T, u32>::value)
@@ -985,7 +990,6 @@ namespace
 				remaining -= written;
 			}
 			else
-#endif
 			if (s_use_sse4_1 && remaining >= 32 && !skip_restart)
 			{
 				if constexpr (std::is_same<T, u32>::value)
@@ -1033,7 +1037,7 @@ namespace
 	};
 
 	template<typename T>
-	std::tuple<T, T, u32> upload_untouched(gsl::span<to_be_t<const T>> src, gsl::span<T> dst, rsx::primitive_type draw_mode, bool is_primitive_restart_enabled, u32 primitive_restart_index)
+	std::tuple<T, T, u32> upload_untouched(gsl::span<to_be_t<const T>> src, gsl::span<T> dst, rsx::primitive_type draw_mode, bool is_primitive_restart_enabled, T primitive_restart_index)
 	{
 		if (!is_primitive_restart_enabled)
 		{
@@ -1272,7 +1276,7 @@ namespace
 	template<typename T>
 	std::tuple<T, T, u32> write_index_array_data_to_buffer_impl(gsl::span<T> dst,
 		gsl::span<const be_t<T>> src,
-		rsx::primitive_type draw_mode, bool restart_index_enabled, u32 restart_index,
+		rsx::primitive_type draw_mode, bool restart_index_enabled, T restart_index,
 		const std::function<bool(rsx::primitive_type)>& expands)
 	{
 		if (LIKELY(!expands(draw_mode)))
