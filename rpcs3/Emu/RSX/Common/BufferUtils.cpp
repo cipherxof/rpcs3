@@ -11,7 +11,6 @@
 #if defined(_MSC_VER)
 #define __SSSE3__  1
 #define __SSE4_1__ 1
-#define __AVX2__ 1
 #define AVX2_FUNC
 #define SSE4_1_FUNC
 #else
@@ -608,8 +607,9 @@ namespace
 
 	struct untouched_impl
 	{
+		SSE4_1_FUNC
 		static
-		std::tuple<u16, u16, u32> upload_u16_swapped(const void *src, void *dst, u32 count)
+		std::tuple<u16, u16, u32> upload_u16_swapped_sse4_1(const void *src, void *dst, u32 count)
 		{
 			const __m128i mask = _mm_set_epi8(
 				0xE, 0xF, 0xC, 0xD,
@@ -665,8 +665,9 @@ namespace
 			return std::make_tuple(min_index, max_index, count);
 		}
 
+		SSE4_1_FUNC
 		static
-		std::tuple<u32, u32, u32> upload_u32_swapped(const void *src, void *dst, u32 count)
+		std::tuple<u32, u32, u32> upload_u32_swapped_sse4_1(const void *src, void *dst, u32 count)
 		{
 			const __m128i mask = _mm_set_epi8(
 				0xC, 0xD, 0xE, 0xF,
@@ -728,12 +729,12 @@ namespace
 				if constexpr (std::is_same<T, u32>::value)
 				{
 					const auto count = (remaining & ~0x3);
-					std::tie(min_index, max_index, written) = upload_u32_swapped(src.data(), dst.data(), count);
+					std::tie(min_index, max_index, written) = upload_u32_swapped_sse4_1(src.data(), dst.data(), count);
 				}
 				else if constexpr (std::is_same<T, u16>::value)
 				{
 					const auto count = (remaining & ~0x7);
-					std::tie(min_index, max_index, written) = upload_u16_swapped(src.data(), dst.data(), count);
+					std::tie(min_index, max_index, written) = upload_u16_swapped_sse4_1(src.data(), dst.data(), count);
 				}
 				else
 				{
@@ -909,7 +910,7 @@ namespace
 
 		SSE4_1_FUNC
 		static
-		std::tuple<u32, u32, u32> upload_u32_swapped(const void *src, void *dst, u32 count, u32 restart_index)
+		std::tuple<u32, u32, u32> upload_u32_swapped_sse4_1(const void *src, void *dst, u32 count, u32 restart_index)
 		{
 			u32 dst_index = 0;
 
@@ -970,37 +971,28 @@ namespace
 			u32 written;
 			u32 remaining = src.size();
 
-			if (s_use_avx2 && remaining >= 32 && !skip_restart)
+			if (remaining >= 32 && !skip_restart)
 			{
 				if constexpr (std::is_same<T, u32>::value)
 				{
-					const auto count = (remaining & ~0x3);
-					std::tie(min_index, max_index, written) = upload_u32_swapped(src.data(), dst.data(), count, restart_index);
+					if (s_use_sse4_1)
+					{
+						const auto count = (remaining & ~0x3);
+						std::tie(min_index, max_index, written) = upload_u32_swapped_sse4_1(src.data(), dst.data(), count, restart_index);
+					}
 				}
 				else if constexpr (std::is_same<T, u16>::value)
 				{
-					const auto count = (remaining & ~0xf);
-					std::tie(min_index, max_index, written) = upload_u16_swapped_avx2(src.data(), dst.data(), count, restart_index);
-				}
-				else
-				{
-					fmt::throw_exception("Unreachable" HERE);
-				}
-
-				remaining -= written;
-			}
-			else
-			if (s_use_sse4_1 && remaining >= 32 && !skip_restart)
-			{
-				if constexpr (std::is_same<T, u32>::value)
-				{
-					const auto count = (remaining & ~0x3);
-					std::tie(min_index, max_index, written) = upload_u32_swapped(src.data(), dst.data(), count, restart_index);
-				}
-				else if constexpr (std::is_same<T, u16>::value)
-				{
-					const auto count = (remaining & ~0x7);
-					std::tie(min_index, max_index, written) = upload_u16_swapped_sse4_1(src.data(), dst.data(), count, restart_index);
+					if (s_use_avx2)
+					{
+						const auto count = (remaining & ~0xf);
+						std::tie(min_index, max_index, written) = upload_u16_swapped_avx2(src.data(), dst.data(), count, restart_index);
+					}
+					else if (s_use_sse4_1)
+					{
+						const auto count = (remaining & ~0x7);
+						std::tie(min_index, max_index, written) = upload_u16_swapped_sse4_1(src.data(), dst.data(), count, restart_index);
+					}
 				}
 				else
 				{
@@ -1037,11 +1029,22 @@ namespace
 	};
 
 	template<typename T>
-	std::tuple<T, T, u32> upload_untouched(gsl::span<to_be_t<const T>> src, gsl::span<T> dst, rsx::primitive_type draw_mode, bool is_primitive_restart_enabled, T primitive_restart_index)
+	std::tuple<T, T, u32> upload_untouched(gsl::span<to_be_t<const T>> src, gsl::span<T> dst, rsx::primitive_type draw_mode, bool is_primitive_restart_enabled, u32 primitive_restart_index)
 	{
 		if (!is_primitive_restart_enabled)
 		{
 			return untouched_impl::upload_untouched(src, dst);
+		}
+		else if constexpr (std::is_same<T, u16>::value)
+		{
+			if (primitive_restart_index > 0xffff)
+			{
+				return untouched_impl::upload_untouched(src, dst);
+			}
+			else
+			{
+				return primitive_restart_impl::upload_untouched(src, dst, (u16)primitive_restart_index, is_primitive_disjointed(draw_mode));
+			}
 		}
 		else
 		{
@@ -1276,7 +1279,7 @@ namespace
 	template<typename T>
 	std::tuple<T, T, u32> write_index_array_data_to_buffer_impl(gsl::span<T> dst,
 		gsl::span<const be_t<T>> src,
-		rsx::primitive_type draw_mode, bool restart_index_enabled, T restart_index,
+		rsx::primitive_type draw_mode, bool restart_index_enabled, u32 restart_index,
 		const std::function<bool(rsx::primitive_type)>& expands)
 	{
 		if (LIKELY(!expands(draw_mode)))
