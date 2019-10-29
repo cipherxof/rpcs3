@@ -338,12 +338,9 @@ u64 VKGSRender::get_cycles()
 
 VKGSRender::VKGSRender() : GSRender()
 {
-	u32 instance_handle = m_thread_context.createInstance("RPCS3");
-
-	if (instance_handle > 0)
+	if (m_thread_context.createInstance("RPCS3"))
 	{
-		m_thread_context.makeCurrentInstance(instance_handle);
-		m_thread_context.enable_debugging();
+		m_thread_context.makeCurrentInstance();
 	}
 	else
 	{
@@ -987,14 +984,17 @@ void VKGSRender::update_draw_state()
 		}
 	}
 
-	if (rsx::method_registers.depth_bounds_test_enabled())
+	if (m_device->get_depth_bounds_support())
 	{
-		//Update depth bounds min/max
-		vkCmdSetDepthBounds(*m_current_command_buffer, rsx::method_registers.depth_bounds_min(), rsx::method_registers.depth_bounds_max());
-	}
-	else
-	{
-		vkCmdSetDepthBounds(*m_current_command_buffer, 0.f, 1.f);
+		if (rsx::method_registers.depth_bounds_test_enabled())
+		{
+			//Update depth bounds min/max
+			vkCmdSetDepthBounds(*m_current_command_buffer, rsx::method_registers.depth_bounds_min(), rsx::method_registers.depth_bounds_max());
+		}
+		else
+		{
+			vkCmdSetDepthBounds(*m_current_command_buffer, 0.f, 1.f);
+		}
 	}
 
 	bind_viewport();
@@ -2494,7 +2494,7 @@ bool VKGSRender::load_program()
 	properties.state.set_front_face(vk::get_front_face(rsx::method_registers.front_face_mode()));
 	properties.state.enable_depth_clamp(rsx::method_registers.depth_clamp_enabled() || !rsx::method_registers.depth_clip_enabled());
 	properties.state.enable_depth_bias(true);
-	properties.state.enable_depth_bounds_test(true);
+	properties.state.enable_depth_bounds_test(m_device->get_depth_bounds_support());
 
 	if (rsx::method_registers.depth_test_enabled())
 	{
