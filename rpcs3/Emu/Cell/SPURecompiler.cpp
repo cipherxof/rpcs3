@@ -7266,8 +7266,7 @@ public:
 			const auto b = get_vr<f32[4]>(op.rb);
 			const auto aa = bitcast<s32[4]>(fabs(a));
 			const auto ab = bitcast<s32[4]>(fabs(b));
-			const auto m = eval(select(min(aa, ab) <= 0x7fffff, fsplat<f32[4]>(0.), a * b));
-			set_vr(op.rt, clamp_smax(m));
+			set_vr(op.rt, eval(select(min(aa, ab) <= 0x7fffff, fsplat<f32[4]>(0.), a * b)));
 		}
 		else
 			set_vr(op.rt, get_vr<f32[4]>(op.ra) * get_vr<f32[4]>(op.rb));

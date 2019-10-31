@@ -287,10 +287,11 @@ void cpu_thread::operator()()
 		// force input/output denormals to zero for SPU threads (FTZ/DAZ)
 		_mm_setcsr( _mm_getcsr() | 0x8040 );
 
-		__m128 a = _mm_castsi128_ps(_mm_set1_epi32(as_volatile(0x1fc00000)));
-		int b = _mm_cvtsi128_si32(_mm_castps_si128(_mm_mul_ps(a,a)));
+		volatile u32 a = 0x1fc00000;
+		__m128 b = _mm_castsi128_ps(_mm_set1_epi32(const_cast<u32 &>(a)));
+		int c = _mm_cvtsi128_si32(_mm_castps_si128(_mm_mul_ps(b,b)));
 
-		if (b != 0)
+		if (c != 0)
 		{
 			LOG_FATAL(GENERAL,"could not disable denormals");
 		}
