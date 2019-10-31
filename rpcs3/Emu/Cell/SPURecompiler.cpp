@@ -7268,7 +7268,7 @@ public:
 	{
 		if (g_cfg.core.spu_accurate_xfloat || g_cfg.core.spu_fs_accuracy == spu_instruction_accuracy::accurate)
 			set_vr(op.rt, get_vr<f64[4]>(op.ra) - get_vr<f64[4]>(op.rb));
-		else if (g_cfg.core.spu_approx_xfloat)
+		else if (g_cfg.core.spu_approx_xfloat || g_cfg.core.spu_fm_accuracy == spu_instruction_accuracy::approximate)
 		{
 			const auto b = eval(clamp_smax(get_vr<f32[4]>(op.rb))); // for #4478
 			set_vr(op.rt, get_vr<f32[4]>(op.ra) - b);
