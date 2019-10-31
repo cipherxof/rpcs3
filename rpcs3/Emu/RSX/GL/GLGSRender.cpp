@@ -38,6 +38,7 @@ GLGSRender::GLGSRender() : GSRender()
 		m_vertex_cache = std::make_unique<gl::weak_vertex_cache>();
 
 	backend_config.supports_hw_a2c = false;
+	backend_config.supports_hw_a2one = false;
 	backend_config.supports_multidraw = true;
 }
 
@@ -1724,7 +1725,7 @@ void GLGSRender::flip(const rsx::display_flip_info_t& info)
 
 		areai screen_area = coordi({}, { (int)buffer_width, (int)buffer_height });
 
-		if (g_cfg.video.full_rgb_range_output && avconfig->gamma == 1.f)
+		if (g_cfg.video.full_rgb_range_output && rsx::fcmp(avconfig->gamma, 1.f))
 		{
 			// Blit source image to the screen
 			m_flip_fbo.recreate();
