@@ -277,8 +277,8 @@ struct spu_channel_4_t
 public:
 	void clear()
 	{
-		values.release({});
 		value3.release(0);
+		values.release({});
 	}
 
 	// push unconditionally (overwriting latest value), returns true if needs signaling
