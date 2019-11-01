@@ -936,8 +936,6 @@ error_code sys_spu_thread_write_spu_mb(ppu_thread& ppu, u32 id, u32 value)
 		return CELL_ESRCH;
 	}
 
-	std::lock_guard lock(group->mutex);
-
 	thread->ch_in_mbox.push(*thread, value);
 
 	return CELL_OK;
