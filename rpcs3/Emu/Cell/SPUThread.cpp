@@ -1295,9 +1295,9 @@ void spu_thread::do_dma_transfer(const spu_mfc_cmd& args)
 		{
 			fmt::throw_exception("SPU MMIO used for RawSPU (cmd=0x%x, lsa=0x%x, ea=0x%llx, tag=0x%x, size=0x%x)" HERE, args.cmd, args.lsa, args.eal, args.tag, args.size);
 		}
-		else if (group && group->threads[index])
+		else if (group && group->threads_map[index] != -1)
 		{
-			auto& spu = static_cast<spu_thread&>(*group->threads[index]);
+			auto& spu = static_cast<spu_thread&>(*+group->threads[group->threads_map[index]]);
 
 			if (offset + args.size - 1 < 0x40000) // LS access
 			{
@@ -2911,7 +2911,7 @@ bool spu_thread::stop_and_signal(u32 code)
 				queue->sq.emplace_back(this);
 				group->run_state = SPU_THREAD_GROUP_STATUS_WAITING;
 
-				for (auto& thread : group->threads)
+				for (named_thread<spu_thread>* thread : group->threads)
 				{
 					if (thread)
 					{
@@ -2964,13 +2964,13 @@ bool spu_thread::stop_and_signal(u32 code)
 			group->run_state = SPU_THREAD_GROUP_STATUS_SUSPENDED;
 		}
 
-		for (auto& thread : group->threads)
+		for (named_thread<spu_thread>* thread : group->threads)
 		{
 			if (thread)
 			{
 				thread->state -= cpu_flag::suspend;
 
-				if (thread.get() != this)
+				if (thread != this)
 				{
 					thread_ctrl::notify(*thread);
 				}
@@ -3065,9 +3065,9 @@ bool spu_thread::stop_and_signal(u32 code)
 
 		std::lock_guard lock(group->mutex);
 
-		for (auto& thread : group->threads)
+		for (named_thread<spu_thread>* thread : group->threads)
 		{
-			if (thread && thread.get() != this)
+			if (thread && thread != this)
 			{
 				thread->state += cpu_flag::stop;
 				thread_ctrl::notify(*thread);
