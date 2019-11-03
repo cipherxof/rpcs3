@@ -296,7 +296,7 @@ namespace rsx
 		if (conditional_render_enabled && conditional_render_test_address)
 		{
 			// Evaluate conditional rendering test
-			zcull_ctrl->read_barrier(this, conditional_render_test_address, 4);
+			zcull_ctrl->read_barrier(this, conditional_render_test_address, 4, reports::sync_no_notify);
 			vm::ptr<CellGcmReportData> result = vm::cast(conditional_render_test_address);
 			conditional_render_test_failed = (result->value == 0);
 			conditional_render_test_address = 0;
@@ -2350,6 +2350,11 @@ namespace rsx
 		vm::_ref<atomic_t<CellGcmReportData>>(sink).store({ timestamp(), value, 0});
 	}
 
+	u32 thread::copy_zcull_stats(u32 memory_range_start, u32 memory_range, u32 destination)
+	{
+		return zcull_ctrl->copy_reports_to(memory_range_start, memory_range, destination);
+	}
+
 	void thread::sync()
 	{
 		zcull_ctrl->sync(this);
@@ -2386,9 +2391,10 @@ namespace rsx
 		return fifo_ctrl->last_cmd();
 	}
 
-	void thread::read_barrier(u32 memory_address, u32 memory_range)
+	flags32_t thread::read_barrier(u32 memory_address, u32 memory_range, bool unconditional)
 	{
-		zcull_ctrl->read_barrier(this, memory_address, memory_range);
+		flags32_t zcull_flags = (unconditional)? reports::sync_none : reports::sync_defer_copy;
+		return zcull_ctrl->read_barrier(this, memory_address, memory_range, zcull_flags);
 	}
 
 	void thread::notify_zcull_info_changed()
@@ -2845,6 +2851,7 @@ namespace rsx
 					m_current_task->sync_timestamp = 0;
 					m_current_task->active = true;
 					m_current_task->owned = false;
+					m_current_task->hint = false;
 					return;
 				}
 
@@ -2868,6 +2875,7 @@ namespace rsx
 					m_current_task->sync_timestamp = 0;
 					m_current_task->active = true;
 					m_current_task->owned = false;
+					m_current_task->hint = false;
 					return;
 				}
 
@@ -2938,6 +2946,16 @@ namespace rsx
 			vm::_ref<atomic_t<CellGcmReportData>>(sink).store({ timestamp, value, 0});
 		}
 
+		void ZCULL_control::write(queued_report_write* writer, u64 timestamp, u32 value)
+		{
+			write(writer->sink, timestamp, writer->type, value);
+
+			for (auto &addr : writer->sink_alias)
+			{
+				write(addr, timestamp, writer->type, value);
+			}
+		}
+
 		void ZCULL_control::sync(::rsx::thread* ptimer)
 		{
 			if (!m_pending_writes.empty())
@@ -2979,8 +2997,10 @@ namespace rsx
 					}
 
 					if (!writer.forwarder)
-						//No other queries in the chain, write result
-						write(writer.sink, ptimer->timestamp(), writer.type, result);
+					{
+						// No other queries in the chain, write result
+						write(&writer, ptimer->timestamp(), result);
+					}
 
 					processed++;
 				}
@@ -2997,7 +3017,7 @@ namespace rsx
 
 					if (remaining == 1)
 					{
-						m_pending_writes.front() = m_pending_writes.back();
+						m_pending_writes[0] = std::move(m_pending_writes.back());
 						m_pending_writes.resize(1);
 					}
 					else
@@ -3052,6 +3072,17 @@ namespace rsx
 			{
 				if (m_tsc < front.due_tsc)
 				{
+					if (front.query && !front.query->hint && (front.due_tsc - m_tsc) <= m_backend_warn_threshold)
+					{
+						if (front.type == CELL_GCM_ZPASS_PIXEL_CNT || front.type == CELL_GCM_ZCULL_STATS3)
+						{
+							// Imminent read
+							ptimer->sync_hint(FIFO_hint::hint_zcull_sync, reinterpret_cast<uintptr_t>(front.query));
+						}
+
+						front.query->hint = true;
+					}
+
 					// Avoid spamming backend with report status updates
 					return;
 				}
@@ -3122,6 +3153,13 @@ namespace rsx
 							}
 							else
 							{
+								if (!query->hint && (writer.due_tsc - m_tsc) <= m_backend_warn_threshold)
+								{
+									// Imminent read
+									ptimer->sync_hint(FIFO_hint::hint_zcull_sync, reinterpret_cast<uintptr_t>(query));
+									query->hint = true;
+								}
+
 								//Too early; abort
 								break;
 							}
@@ -3138,10 +3176,12 @@ namespace rsx
 
 				stat_tag_to_remove = writer.counter_tag;
 
-				//only zpass supported right now
+				// only zpass supported right now
 				if (!writer.forwarder)
-					//No other queries in the chain, write result
-					write(writer.sink, ptimer->timestamp(), writer.type, result);
+				{
+					// No other queries in the chain, write result
+					write(&writer, ptimer->timestamp(), result);
+				}
 
 				processed++;
 			}
@@ -3154,7 +3194,7 @@ namespace rsx
 				auto remaining = m_pending_writes.size() - processed;
 				if (remaining == 1)
 				{
-					m_pending_writes.front() = m_pending_writes.back();
+					m_pending_writes[0] = std::move(m_pending_writes.back());
 					m_pending_writes.resize(1);
 				}
 				else if (remaining)
@@ -3171,27 +3211,40 @@ namespace rsx
 			}
 		}
 
-		void ZCULL_control::read_barrier(::rsx::thread* ptimer, u32 memory_address, u32 memory_range)
+		flags32_t ZCULL_control::read_barrier(::rsx::thread* ptimer, u32 memory_address, u32 memory_range, flags32_t flags)
 		{
 			if (m_pending_writes.empty())
-				return;
+				return result_none;
 
 			const auto memory_end = memory_address + memory_range;
 			u32 sync_address = 0;
+			occlusion_query_info* query;
 
 			for (auto It = m_pending_writes.crbegin(); It != m_pending_writes.crend(); ++It)
 			{
 				if (It->sink >= memory_address && It->sink < memory_end)
 				{
 					sync_address = It->sink;
+					query = It->query;
 					break;
 				}
 			}
 
-			if (sync_address)
+			if (!sync_address)
+				return result_none;
+
+			if (!(flags & sync_defer_copy))
 			{
+				if (!(flags & sync_no_notify))
+				{
+					ptimer->sync_hint(FIFO_hint::hint_zcull_sync, reinterpret_cast<uintptr_t>(query));
+				}
+
 				update(ptimer, sync_address);
+				return result_none;
 			}
+
+			return result_zcull_intr;
 		}
 
 		occlusion_query_info* ZCULL_control::find_query(vm::addr_t sink_address)
@@ -3203,6 +3256,25 @@ namespace rsx
 			}
 
 			return nullptr;
+		}
+
+		u32 ZCULL_control::copy_reports_to(u32 start, u32 range, u32 dest)
+		{
+			u32 bytes_to_write = 0;
+			const auto memory_range = utils::address_range::start_length(start, range);
+			for (auto &writer : m_pending_writes)
+			{
+				if (!writer.sink)
+					break;
+
+				if (!writer.forwarder && memory_range.overlaps(writer.sink))
+				{
+					u32 address = (writer.sink - start) + dest;
+					writer.sink_alias.push_back(vm::cast(address));
+				}
+			}
+
+			return bytes_to_write;
 		}
 	}
 }

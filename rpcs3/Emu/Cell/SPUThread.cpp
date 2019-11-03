@@ -1984,10 +1984,18 @@ bool spu_thread::process_mfc_cmd()
 						if (cmp_rdata(rdata, data))
 						{
 							mov_rdata(data, to_write);
+							res.release(old_time + 128);
 							result = 1;
 						}
+						else
+						{
+							res.release(old_time);
+						}
 					}
-					res.release(old_time + (long long)(result << 7));
+					else
+					{
+						res.release(old_time);
+					}
 				}
 			}
 		}

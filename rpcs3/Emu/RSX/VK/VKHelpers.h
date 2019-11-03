@@ -71,7 +71,7 @@ namespace vk
 
 	//VkAllocationCallbacks default_callbacks();
 
-	enum driver_vendor
+	enum class driver_vendor
 	{
 		unknown,
 		AMD,
@@ -93,6 +93,12 @@ namespace vk
 		NV_pascal,
 		NV_volta,
 		NV_turing
+	};
+
+	enum // special remap_encoding enums
+	{
+		VK_REMAP_IDENTITY = 0xCAFEBABE,             // Special view encoding to return an identity image view
+		VK_REMAP_VIEW_MULTISAMPLED = 0xDEADBEEF     // Special encoding for multisampled images; returns a multisampled image view
 	};
 
 	class context;
@@ -1407,6 +1413,17 @@ private:
 		virtual image_view* get_view(u32 remap_encoding, const std::pair<std::array<u8, 4>, std::array<u8, 4>>& remap,
 			VkImageAspectFlags mask = VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT)
 		{
+			if (remap_encoding == VK_REMAP_IDENTITY)
+			{
+				if (native_component_map.a == VK_COMPONENT_SWIZZLE_A &&
+					native_component_map.r == VK_COMPONENT_SWIZZLE_R &&
+					native_component_map.g == VK_COMPONENT_SWIZZLE_G &&
+					native_component_map.b == VK_COMPONENT_SWIZZLE_B)
+				{
+					remap_encoding = 0xAAE4;
+				}
+			}
+
 			auto found = views.equal_range(remap_encoding);
 			for (auto It = found.first; It != found.second; ++It)
 			{
@@ -1417,17 +1434,21 @@ private:
 			}
 
 			VkComponentMapping real_mapping;
-			if (remap_encoding == 0xAAE4)
+			switch (remap_encoding)
 			{
+			case VK_REMAP_IDENTITY:
+				real_mapping = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY };
+				break;
+			case 0xAAE4:
 				real_mapping = native_component_map;
-			}
-			else
-			{
+				break;
+			default:
 				real_mapping = vk::apply_swizzle_remap
 				(
 					{ native_component_map.a, native_component_map.r, native_component_map.g, native_component_map.b },
 					remap
 				);
+				break;
 			}
 
 			const auto range = vk::get_image_subresource_range(0, 0, info.arrayLayers, info.mipLevels, aspect() & mask);
@@ -2915,25 +2936,39 @@ public:
 		bool check_query_status(u32 index)
 		{
 			u32 result[2] = {0, 0};
-			switch (VkResult status = vkGetQueryPoolResults(*owner, query_pool, index, 1, 8, result, 8, VK_QUERY_RESULT_WITH_AVAILABILITY_BIT))
+			switch (const auto error = vkGetQueryPoolResults(*owner, query_pool, index, 1, 8, result, 8, VK_QUERY_RESULT_PARTIAL_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT))
 			{
 			case VK_SUCCESS:
-				break;
+				return (result[0] || result[1]);
 			case VK_NOT_READY:
 				return false;
 			default:
-				vk::die_with_error(HERE, status);
+				die_with_error(HERE, error);
+				return false;
 			}
-
-			return result[1] != 0;
 		}
 
 		u32 get_query_result(u32 index)
 		{
-			u32 result = 0;
-			CHECK_RESULT(vkGetQueryPoolResults(*owner, query_pool, index, 1, 4, &result, 4, VK_QUERY_RESULT_WAIT_BIT));
+			u32 result[2] = { 0, 0 };
 
-			return result == 0u? 0u: 1u;
+			do
+			{
+				switch (const auto error = vkGetQueryPoolResults(*owner, query_pool, index, 1, 8, result, 8, VK_QUERY_RESULT_PARTIAL_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT))
+				{
+				case VK_SUCCESS:
+					if (result[0]) return 1u;
+					if (result[1]) return 0u;  // Partial result can return SUCCESS when unavailable
+					continue;
+				case VK_NOT_READY:
+					if (result[0]) return 1u;  // Partial result can return NOT_READY when unavailable
+					continue;
+				default:
+					die_with_error(HERE, error);
+					return false;
+				}
+			}
+			while (true);
 		}
 
 		void reset_query(vk::command_buffer &cmd, u32 index)
@@ -3256,6 +3291,7 @@ public:
 					std::string shader_type = type == ::glsl::program_domain::glsl_vertex_program ? "vertex" :
 						type == ::glsl::program_domain::glsl_fragment_program ? "fragment" : "compute";
 
+					LOG_NOTICE(RSX, "%s", m_source);
 					fmt::throw_exception("Failed to compile %s shader" HERE, shader_type);
 				}
 
