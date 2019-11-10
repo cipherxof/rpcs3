@@ -247,7 +247,9 @@ struct lv2_spu_group
 	atomic_t<u64> stop_count;
 	class ppu_thread* waiter = nullptr;
 
-	std::array<std::shared_ptr<named_thread<spu_thread>>, 256> threads; // SPU Threads
+	std::array<atomic_t<named_thread<spu_thread>*>, 6> threads{}; // SPU Threads
+	std::array<u32, 6> threads_ids; // SPU Threads' IDM ids
+	std::array<s8, 256> threads_map; // SPU Threads map based number
 	std::array<std::pair<sys_spu_image, std::vector<sys_spu_segment>>, 256> imgs; // SPU Images
 	std::array<std::array<u64, 4>, 256> args; // SPU Thread Arguments
 
@@ -269,7 +271,10 @@ struct lv2_spu_group
 		, running(0)
 		, stop_count(0)
 	{
+		threads_map.fill(-1);
 	}
+
+	~lv2_spu_group();
 
 	void send_run_event(u64 data1, u64 data2, u64 data3)
 	{
@@ -294,6 +299,8 @@ struct lv2_spu_group
 			queue->send(SYS_SPU_THREAD_GROUP_EVENT_SYSTEM_MODULE_KEY, data1, data2, data3);
 		}
 	}
+
+	static std::pair<named_thread<spu_thread>*, std::shared_ptr<lv2_spu_group>> get_spu_thread(u32 id);
 };
 
 class ppu_thread;
