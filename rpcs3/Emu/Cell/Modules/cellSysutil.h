@@ -152,6 +152,15 @@ enum
 	CELL_SYSUTIL_PAD_RUMBLE_ON   = 1,
 };
 
+enum
+{
+	CELL_SYSCACHE_RET_OK_CLEARED      = 0,
+	CELL_SYSCACHE_RET_OK_RELAYED      = 1,
+
+	CELL_SYSCACHE_ID_SIZE             = 32,
+	CELL_SYSCACHE_PATH_MAX            = 1055,
+};
+
 enum CellSysCacheError : u32
 {
 	CELL_SYSCACHE_ERROR_ACCESS_ERROR  = 0x8002bc01, // I don't think we need this
@@ -159,18 +168,6 @@ enum CellSysCacheError : u32
 
 	CELL_SYSCACHE_ERROR_PARAM         = 0x8002bc03,
 	CELL_SYSCACHE_ERROR_NOTMOUNTED    = 0x8002bc04, // We don't really need to simulate the mounting, so this is probably useless
-};
-
-enum
-{
-	CELL_SYSCACHE_ID_SIZE             = 32,
-	CELL_SYSCACHE_PATH_MAX            = 1055,
-};
-
-enum
-{
-	CELL_SYSCACHE_RET_OK_CLEARED = 0,
-	CELL_SYSCACHE_RET_OK_RELAYED = 1
 };
 
 enum CellSysutilBgmPlaybackStatusState

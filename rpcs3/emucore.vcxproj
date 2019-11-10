@@ -239,6 +239,7 @@
     <ClCompile Include="Emu\Cell\Modules\cellSync.cpp" />
     <ClCompile Include="Emu\Cell\Modules\cellSync2.cpp" />
     <ClCompile Include="Emu\Cell\Modules\cellSysconf.cpp" />
+    <ClCompile Include="Emu\Cell\Modules\cellSysCache.cpp" />
     <ClCompile Include="Emu\Cell\Modules\cellSysmodule.cpp" />
     <ClCompile Include="Emu\Cell\Modules\cellSysutil.cpp" />
     <ClCompile Include="Emu\Cell\Modules\cellSysutilAp.cpp" />
@@ -404,7 +405,6 @@
     <ClInclude Include="..\Utilities\dynamic_library.h" />
     <ClInclude Include="..\Utilities\event.h" />
     <ClInclude Include="..\Utilities\geometry.h" />
-    <ClInclude Include="..\Utilities\GSL.h" />
     <ClInclude Include="..\Utilities\hash.h" />
     <ClInclude Include="..\Utilities\JIT.h" />
     <ClInclude Include="..\Utilities\lockless.h" />

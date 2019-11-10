@@ -37,6 +37,7 @@
 #include <fstream>
 #include <memory>
 #include <regex>
+#include <charconv>
 
 #include "Utilities/JIT.h"
 
@@ -378,8 +379,7 @@ void Emulator::Init()
 		make_path_verbose(dev_hdd0 + "disc/");
 		make_path_verbose(dev_hdd0 + "savedata/");
 		make_path_verbose(dev_hdd0 + "savedata/vmc/");
-		make_path_verbose(dev_hdd1 + "cache/");
-		make_path_verbose(dev_hdd1 + "game/");
+		make_path_verbose(dev_hdd1 + "caches/");
 	}
 
 	// Fixup savedata
@@ -538,16 +538,8 @@ const bool Emulator::SetUsr(const std::string& user)
 		return false;
 	}
 
-	u32 id;
-
-	try
-	{
-		id = static_cast<u32>(std::stoul(user));
-	}
-	catch (const std::exception&)
-	{
-		id = 0;
-	}
+	u32 id = 0;
+	std::from_chars(&user.front(), &user.back() + 1, id);
 
 	if (id == 0)
 	{
@@ -653,7 +645,7 @@ bool Emulator::BootRsxCapture(const std::string& path)
 
 void Emulator::LimitCacheSize()
 {
-	const std::string cache_location = Emulator::GetHdd1Dir() + "/cache";
+	const std::string cache_location = Emulator::GetHdd1Dir() + "/caches";
 	if (!fs::is_dir(cache_location))
 	{
 		LOG_WARNING(GENERAL, "Cache does not exist (%s)", cache_location);
@@ -1066,11 +1058,16 @@ void Emulator::Load(const std::string& title_id, bool add_only, bool force_globa
 
 		// Mount default relative path to non-existent directory
 		vfs::mount("/dev_hdd0", fmt::replace_all(g_cfg.vfs.dev_hdd0, "$(EmulatorDir)", emu_dir));
-		vfs::mount("/dev_hdd1", fmt::replace_all(g_cfg.vfs.dev_hdd1, "$(EmulatorDir)", emu_dir));
 		vfs::mount("/dev_flash", g_cfg.vfs.get_dev_flash());
 		vfs::mount("/dev_usb", fmt::replace_all(g_cfg.vfs.dev_usb000, "$(EmulatorDir)", emu_dir));
 		vfs::mount("/dev_usb000", fmt::replace_all(g_cfg.vfs.dev_usb000, "$(EmulatorDir)", emu_dir));
 		vfs::mount("/app_home", home_dir.empty() ? elf_dir + '/' : fmt::replace_all(home_dir, "$(EmulatorDir)", emu_dir));
+
+		if (!hdd1.empty())
+		{
+			vfs::mount("/dev_hdd1", hdd1);
+			LOG_NOTICE(LOADER, "Hdd1: %s", vfs::get("/dev_hdd1"));
+		}
 
 		// Special boot mode (directory scan)
 		if (fs::is_dir(m_path))
@@ -1832,6 +1829,7 @@ void Emulator::Stop(bool restart)
 	data.clear();
 	disc.clear();
 	klic.clear();
+	hdd1.clear();
 
 	m_force_boot = false;
 

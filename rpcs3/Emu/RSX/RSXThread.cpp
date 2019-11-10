@@ -15,7 +15,7 @@
 #include "Emu/Cell/lv2/sys_event.h"
 #include "Emu/Cell/Modules/cellGcmSys.h"
 
-#include "Utilities/GSL.h"
+#include "Utilities/span.h"
 #include "Utilities/StrUtil.h"
 
 #include <cereal/archives/binary.hpp>
@@ -830,12 +830,12 @@ namespace rsx
 		return t + timestamp_subvalue;
 	}
 
-	gsl::span<const gsl::byte> thread::get_raw_index_array(const draw_clause& draw_indexed_clause) const
+	gsl::span<const std::byte> thread::get_raw_index_array(const draw_clause& draw_indexed_clause) const
 	{
 		if (!element_push_buffer.empty())
 		{
 			//Indices provided via immediate mode
-			return{(const gsl::byte*)element_push_buffer.data(), ::narrow<u32>(element_push_buffer.size() * sizeof(u32))};
+			return{(const std::byte*)element_push_buffer.data(), ::narrow<u32>(element_push_buffer.size() * sizeof(u32))};
 		}
 
 		const rsx::index_array_type type = rsx::method_registers.index_type();
@@ -850,11 +850,11 @@ namespace rsx
 		const u32 first = draw_indexed_clause.min_index();
 		const u32 count = draw_indexed_clause.get_elements_count();
 
-		const auto ptr = vm::_ptr<const gsl::byte>(address);
+		const auto ptr = vm::_ptr<const std::byte>(address);
 		return{ ptr + first * type_size, count * type_size };
 	}
 
-	gsl::span<const gsl::byte> thread::get_raw_vertex_buffer(const rsx::data_array_format_info& vertex_array_info, u32 base_offset, const draw_clause& draw_array_clause) const
+	gsl::span<const std::byte> thread::get_raw_vertex_buffer(const rsx::data_array_format_info& vertex_array_info, u32 base_offset, const draw_clause& draw_array_clause) const
 	{
 		u32 offset  = vertex_array_info.offset();
 		u32 address = rsx::get_address(rsx::get_vertex_offset_from_base(base_offset, offset & 0x7fffffff), offset >> 31);
@@ -864,7 +864,7 @@ namespace rsx
 		const u32 first = draw_array_clause.min_index();
 		const u32 count = draw_array_clause.get_elements_count();
 
-		const gsl::byte* ptr = vm::_ptr<const gsl::byte>(address);
+		const std::byte* ptr = vm::_ptr<const std::byte>(address);
 		return {ptr + first * vertex_array_info.stride(), count * vertex_array_info.stride() + element_size};
 	}
 
@@ -896,7 +896,7 @@ namespace rsx
 				const auto& info = vertex_push_buffers[index];
 				const u8 element_size = info.size * sizeof(u32);
 
-				gsl::span<const gsl::byte> vertex_src = { (const gsl::byte*)vertex_push_buffers[index].data.data(), vertex_push_buffers[index].vertex_count * element_size };
+				gsl::span<const std::byte> vertex_src = { (const std::byte*)vertex_push_buffers[index].data.data(), vertex_push_buffers[index].vertex_count * element_size };
 				result.emplace_back(vertex_array_buffer{ info.type, info.size, element_size, vertex_src, index, false });
 				continue;
 			}
@@ -1084,7 +1084,7 @@ namespace rsx
 		const bool depth_test_enabled = rsx::method_registers.depth_test_enabled();
 
 		// Check write masks
-		layout.zeta_write_enabled = rsx::method_registers.depth_write_enabled();
+		layout.zeta_write_enabled = (depth_test_enabled && rsx::method_registers.depth_write_enabled());
 		if (!layout.zeta_write_enabled && stencil_test_enabled)
 		{
 			// Check if stencil data is modified
@@ -1130,8 +1130,31 @@ namespace rsx
 			break;
 		case rsx::framebuffer_creation_context::context_draw:
 			// NOTE: As with all other hw, depth/stencil writes involve the corresponding depth/stencil test, i.e No test = No write
+			// NOTE: Depth test is not really using the memory if its set to always or never
+			// TODO: Perform similar checks for stencil test
+			if (!stencil_test_enabled)
+			{
+				if (!depth_test_enabled)
+				{
+					depth_buffer_unused = true;
+				}
+				else if (!rsx::method_registers.depth_write_enabled())
+				{
+					// Depth test is enabled but depth write is disabled
+					switch (rsx::method_registers.depth_func())
+					{
+					default:
+						break;
+					case rsx::comparison_function::never:
+					case rsx::comparison_function::always:
+						// No access to depth buffer memory
+						depth_buffer_unused = true;
+						break;
+					}
+				}
+			}
+
 			color_buffer_unused = !color_write_enabled || layout.target == rsx::surface_target::none;
-			depth_buffer_unused = !depth_test_enabled && !stencil_test_enabled;
 			m_framebuffer_state_contested = color_buffer_unused || depth_buffer_unused;
 			break;
 		default:
@@ -1674,6 +1697,13 @@ namespace rsx
 		result.two_sided_lighting = rsx::method_registers.two_side_light_en();
 		result.redirected_textures = 0;
 		result.shadow_textures = 0;
+
+		if (method_registers.current_draw_clause.primitive == primitive_type::points &&
+			method_registers.point_sprite_enabled())
+		{
+			// Set high word of the control mask to store point sprite control
+			result.texcoord_control_mask |= u32(method_registers.point_sprite_control_mask()) << 16;
+		}
 
 		const auto resolution_scale = rsx::get_resolution_scale();
 
@@ -3216,19 +3246,36 @@ namespace rsx
 
 			const auto memory_end = memory_address + memory_range;
 			u32 sync_address = 0;
-			occlusion_query_info* query;
+			occlusion_query_info* query = nullptr;
 
 			for (auto It = m_pending_writes.crbegin(); It != m_pending_writes.crend(); ++It)
 			{
+				if (sync_address)
+				{
+					if (It->query)
+					{
+						sync_address = It->sink;
+						query = It->query;
+						break;
+					}
+
+					continue;
+				}
+
 				if (It->sink >= memory_address && It->sink < memory_end)
 				{
 					sync_address = It->sink;
-					query = It->query;
-					break;
+
+					// NOTE: If application is spamming requests, there may be no query attached
+					if (It->query)
+					{
+						query = It->query;
+						break;
+					}
 				}
 			}
 
-			if (!sync_address)
+			if (!sync_address || !query)
 				return result_none;
 
 			if (!(flags & sync_defer_copy))

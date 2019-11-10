@@ -49,7 +49,7 @@ target_include_directories(rpcs3_emu PUBLIC "${CMAKE_SOURCE_DIR}")
 target_link_libraries(rpcs3_emu
 	PUBLIC
 		3rdparty::pugixml
-		3rdparty::gsl)
+		3rdparty::span)
 
 if (MSVC)
 	set_source_files_properties("../../Utilities/JIT.cpp" PROPERTIES COMPILE_FLAGS /GR-)
@@ -246,6 +246,7 @@ target_sources(rpcs3_emu PRIVATE
 	Cell/Modules/cellSync2.cpp
 	Cell/Modules/cellSync.cpp
 	Cell/Modules/cellSysconf.cpp
+	Cell/Modules/cellSysCache.cpp
 	Cell/Modules/cellSysmodule.cpp
 	Cell/Modules/cellSysutilAp.cpp
 	Cell/Modules/cellSysutilAvc2.cpp
@@ -411,7 +412,7 @@ target_link_libraries(rpcs3_emu
 		3rdparty::vulkan 3rdparty::glew
 		3rdparty::libusb
 	PRIVATE
-		3rdparty::gsl 3rdparty::xxhash
+		3rdparty::span 3rdparty::xxhash
 )
 
 

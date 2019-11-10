@@ -3133,7 +3133,8 @@ void spu_thread::halt()
 
 		int_ctrl[2].set(SPU_INT2_STAT_SPU_HALT_OR_STEP_INT);
 
-		throw cpu_flag::stop;
+		state += cpu_flag::stop;
+		spu_runtime::g_escape(this);
 	}
 
 	status |= SPU_STATUS_STOPPED_BY_HALT;
@@ -3152,15 +3153,7 @@ void spu_thread::fast_call(u32 ls_addr)
 	pc = ls_addr;
 	gpr[0]._u32[3] = 0x0;
 
-	try
-	{
-		cpu_task();
-	}
-	catch (cpu_flag _s)
-	{
-		state += _s;
-		if (_s != cpu_flag::ret) throw;
-	}
+	cpu_task();
 
 	state -= cpu_flag::ret;
 
