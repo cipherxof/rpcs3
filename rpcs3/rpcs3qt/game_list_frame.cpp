@@ -119,11 +119,7 @@ game_list_frame::game_list_frame(std::shared_ptr<gui_settings> guiSettings, std:
 	{
 		QMenu* configure = new QMenu(this);
 		configure->addActions(m_columnActs);
-		configure->exec(mapToGlobal(pos));
-
-		QMenu* pad_configure = new QMenu(this);
-		pad_configure->addActions(m_columnActs);
-		pad_configure->exec(mapToGlobal(pos));
+		configure->exec(m_gameList->horizontalHeader()->viewport()->mapToGlobal(pos));
 	});
 
 	connect(m_xgrid, &QTableWidget::itemDoubleClicked, this, &game_list_frame::doubleClickedSlot);
@@ -384,26 +380,65 @@ QString game_list_frame::GetPlayTimeBySerial(const QString& serial)
 	const qint64 minutes_played  = (elapsed_seconds % 3600) / 60;
 	const qint64 seconds_played  = (elapsed_seconds % 3600) % 60;
 
+	// For anyone who was wondering why there need to be so many cases:
+	// 1. Using variables won't work for future localization due to varying sentence structure in different languages.
+	// 2. The provided Qt functionality only works if localization is already enabled
+	// 3. The provided Qt functionality only works for single variables
+
 	if (hours_played <= 0)
 	{
 		if (minutes_played <= 0)
 		{
+			if (seconds_played == 1) 
+			{
+				return tr("%0 second").arg(seconds_played);
+			}
 			return tr("%0 seconds").arg(seconds_played);
 		}
 
 		if (seconds_played <= 0)
 		{
+			if (minutes_played == 1) 
+			{
+				return tr("%0 minute").arg(minutes_played);
+			}
 			return tr("%0 minutes").arg(minutes_played);
 		}
-
+		if (minutes_played == 1 && seconds_played == 1)
+		{
+			return tr("%0 minute and %1 second").arg(minutes_played).arg(seconds_played);
+		}
+		if (minutes_played == 1) 
+		{
+			return tr("%0 minute and %1 seconds").arg(minutes_played).arg(seconds_played);
+		}
+		if (seconds_played == 1) 
+		{
+			return tr("%0 minutes and %1 second").arg(minutes_played).arg(seconds_played);
+		}
 		return tr("%0 minutes and %1 seconds").arg(minutes_played).arg(seconds_played);
 	}
 
 	if (minutes_played <= 0)
 	{
+		if (hours_played == 1) 
+		{
+			return tr("%0 hour").arg(hours_played);
+		}
 		return tr("%0 hours").arg(hours_played);
 	}
-
+	if (hours_played == 1 && minutes_played == 1)
+	{
+		return tr("%0 hour and %1 minute").arg(hours_played).arg(minutes_played);
+	}
+	if (hours_played == 1) 
+	{
+		return tr("%0 hour and %1 minutes").arg(hours_played).arg(minutes_played);
+	}
+	if (minutes_played == 1) 
+	{
+		return tr("%0 hours and %1 minute").arg(hours_played).arg(minutes_played);
+	}
 	return tr("%0 hours and %1 minutes").arg(hours_played).arg(minutes_played);
 }
 
@@ -784,13 +819,13 @@ void game_list_frame::ShowContextMenu(const QPoint &pos)
 	if (m_isListLayout)
 	{
 		item = m_gameList->item(m_gameList->indexAt(pos).row(), gui::column_icon);
-		globalPos = m_gameList->mapToGlobal(pos);
+		globalPos = m_gameList->viewport()->mapToGlobal(pos);
 	}
 	else
 	{
 		QModelIndex mi = m_xgrid->indexAt(pos);
 		item = m_xgrid->item(mi.row(), mi.column());
-		globalPos = m_xgrid->mapToGlobal(pos);
+		globalPos = m_xgrid->viewport()->mapToGlobal(pos);
 	}
 
 	game_info gameinfo = GetGameInfoFromItem(item);

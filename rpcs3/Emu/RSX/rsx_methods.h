@@ -692,8 +692,14 @@ namespace rsx
 				return false;
 
 			}
-			
-			return restart_index() <= (index_type() == rsx::index_array_type::u16 ? 0xffff : 0xfffff);
+
+			if (index_type() == rsx::index_array_type::u16 &&
+				restart_index() > 0xffff)
+			{
+				return false;
+			}
+
+			return true;
 		}
 
 		u32 z_clear_value(bool is_depth_stencil) const
@@ -1094,6 +1100,11 @@ namespace rsx
 		f32 point_size() const
 		{
 			return decode<NV4097_SET_POINT_SIZE>().point_size();
+		}
+
+		bool point_sprite_enabled() const
+		{
+			return decode<NV4097_SET_POINT_SPRITE_CONTROL>().enabled();
 		}
 
 		u8 alpha_ref() const
@@ -1671,16 +1682,21 @@ namespace rsx
 			return decode<NV4097_SET_CONTROL0>().depth_float();
 		}
 
-		u32 texcoord_control_mask()
+		u16 texcoord_control_mask() const
 		{
 			// Only 10 texture coords exist [0-9]
-			u32 control_mask = 0;
+			u16 control_mask = 0;
 			for (u8 index = 0; index < 10; ++index)
 			{
 				control_mask |= ((registers[NV4097_SET_TEX_COORD_CONTROL + index] & 1) << index);
 			}
 
 			return control_mask;
+		}
+
+		u16 point_sprite_control_mask() const
+		{
+			return decode<NV4097_SET_POINT_SPRITE_CONTROL>().texcoord_mask();
 		}
 	};
 

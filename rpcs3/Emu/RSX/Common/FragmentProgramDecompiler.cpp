@@ -579,16 +579,29 @@ template<typename T> std::string FragmentProgramDecompiler::GetSRC(T src)
 		case 0xD:
 		{
 			// TEX0 - TEX9
-			const auto texcoord_num = dst.src_attr_reg_num - 0x4;
-			if (texcoord_num == 9 && dst.opcode == RSX_FP_OPCODE_MOV)
+			const u8 texcoord = u8(dst.src_attr_reg_num) - 4;
+			if (texcoord == 9 && dst.opcode == RSX_FP_OPCODE_MOV)
 			{
 				//MGS4 uses only xy of this, x is strength and y is texcoord scale factor or depth bias, clear only x to fix black shadows, clearing y introduces moire
 				ret += getFloatTypeName(4) + "(0., " + reg_var + ".y, " + reg_var + ".z, " + reg_var + ".w)/*MGS4_SHADOW_FIX*/";
 			}
-			// Texcoord mask seems to reset the last 2 arguments to 0 and 1 if set
-			else if (m_prog.texcoord_is_2d(texcoord_num))
+			// Texcoord 2d mask seems to reset the last 2 arguments to 0 and w if set			
+			else if (m_prog.texcoord_is_point_coord(texcoord))
 			{
-				ret += getFloatTypeName(4) + "(" + reg_var + ".x, " + reg_var + ".y, 0., in_w)";
+				// Point sprite coord generation. Stacks with the 2D override mask.
+				if (m_prog.texcoord_is_2d(texcoord))
+				{
+					ret += getFloatTypeName(4) + "(gl_PointCoord, 0., in_w)";
+					properties.has_w_access = true;
+				}
+				else
+				{
+					ret += getFloatTypeName(4) + "(gl_PointCoord, 1., 0.)";
+				}
+			}
+			else if (m_prog.texcoord_is_2d(texcoord))
+			{
+				ret += getFloatTypeName(4) + "(" + reg_var + ".xy, 0., in_w)";
 				properties.has_w_access = true;
 			}
 			else

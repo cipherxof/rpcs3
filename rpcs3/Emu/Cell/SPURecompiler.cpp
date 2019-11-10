@@ -1168,7 +1168,7 @@ void spu_recompiler_base::old_interpreter(spu_thread& spu, void* ls, u8* rip) tr
 	const auto& table = *(
 		g_cfg.core.spu_decoder == spu_decoder_type::precise ? &g_spu_interpreter_precise.get_table() :
 		g_cfg.core.spu_decoder == spu_decoder_type::fast ? &g_spu_interpreter_fast.get_table() :
-		(fmt::throw_exception<std::logic_error>("Invalid SPU decoder"), nullptr));
+		(fmt::throw_exception("Invalid SPU decoder"), nullptr));
 
 	// LS pointer
 	const auto base = static_cast<const u8*>(ls);
@@ -4675,7 +4675,7 @@ public:
 
 				if (found == m_functions.end())
 				{
-					if (g_cfg.core.spu_verification)
+					if (false && g_cfg.core.spu_verification)
 					{
 						const std::string ppname = fmt::format("%s-chunkpp-0x%05x", m_hash, i);
 						m_engine->addGlobalMapping(ppname, (u64)m_spurt->make_branch_patchpoint(i / 4));

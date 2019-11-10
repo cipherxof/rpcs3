@@ -7,6 +7,7 @@
 #include "Emu/Cell/RawSPUThread.h"
 #include "Emu/Cell/lv2/sys_mmapper.h"
 #include "Emu/Cell/lv2/sys_event.h"
+#include "Emu/Cell/lv2/sys_spu.h"
 #include "Thread.h"
 #include "sysinfo.h"
 #include <typeinfo>
@@ -1318,9 +1319,12 @@ bool handle_access_violation(u32 addr, bool is_writing, x64_context* context)
 			{
 				data2 = (SYS_MEMORY_PAGE_FAULT_TYPE_PPU_THREAD << 32) | cpu->id;
 			}
-			else if (static_cast<spu_thread*>(cpu)->group)
+			else if (auto group = static_cast<spu_thread*>(cpu)->group)
 			{
-				data2 = (SYS_MEMORY_PAGE_FAULT_TYPE_SPU_THREAD << 32) | cpu->id;
+				// Construct the actual id
+				const u32 id = (group->id & 0xffffff) | group->threads_map[static_cast<spu_thread*>(cpu)->index] << 24;
+
+				data2 = (SYS_MEMORY_PAGE_FAULT_TYPE_SPU_THREAD << 32) | id;
 			}
 			else
 			{
