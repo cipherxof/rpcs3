@@ -52,17 +52,8 @@
 
 #include <thread>
 #include <cfenv>
-#include "Utilities/GSL.h"
 
-const bool s_use_ssse3 =
-#ifdef _MSC_VER
-	utils::has_ssse3();
-#elif __SSSE3__
-	true;
-#else
-	false;
-#define _mm_shuffle_epi8
-#endif
+const bool s_use_ssse3 = utils::has_ssse3();
 
 extern u64 get_guest_system_time();
 
@@ -182,7 +173,7 @@ static u64 ppu_cache(u32 addr)
 	const auto& table = *(
 		g_cfg.core.ppu_decoder == ppu_decoder_type::precise ? &g_ppu_interpreter_precise.get_table() :
 		g_cfg.core.ppu_decoder == ppu_decoder_type::fast ? &g_ppu_interpreter_fast.get_table() :
-		(fmt::throw_exception<std::logic_error>("Invalid PPU decoder"), nullptr));
+		(fmt::throw_exception("Invalid PPU decoder"), nullptr));
 
 	const u32 value = vm::read32(addr);
 	return (u64)value << 32 | ::narrow<u32>(reinterpret_cast<std::uintptr_t>(table[ppu_decode(value)]));
@@ -839,7 +830,7 @@ void ppu_thread::fast_call(u32 addr, u32 rtoc)
 		return fmt::format("%s [0x%08x]", thread_ctrl::get_name(), _this->cia);
 	};
 
-	auto at_ret = gsl::finally([&]()
+	auto at_ret = [&]()
 	{
 		if (std::uncaught_exceptions())
 		{
@@ -866,21 +857,19 @@ void ppu_thread::fast_call(u32 addr, u32 rtoc)
 			current_function = old_func;
 			g_tls_log_prefix = old_fmt;
 		}
-	});
+	};
 
 	try
 	{
 		exec_task();
 	}
-	catch (cpu_flag _s)
+	catch (...)
 	{
-		state += _s;
-
-		if (_s != cpu_flag::ret)
-		{
-			throw;
-		}
+		at_ret();
+		throw;
 	}
+
+	at_ret();
 }
 
 u32 ppu_thread::stack_push(u32 size, u32 align_v)
