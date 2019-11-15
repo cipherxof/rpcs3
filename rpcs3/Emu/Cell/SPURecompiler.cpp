@@ -7150,11 +7150,17 @@ public:
 
 	void FREST(spu_opcode_t op)
 	{
-		// TODO
+		// TODO (use doubles for xfloat)
 		if (g_cfg.core.spu_accurate_xfloat)
-			set_vr(op.rt, fsplat<f64[4]>(1.0) / get_vr<f64[4]>(op.ra));
+		{
+			const auto a = get_vr<f32[4]>(op.ra);
+			const auto abs_a = eval(bitcast<s32[4]>(fabs(a)));
+			const auto mask_ov = sext<s32[4]>(abs_a > 0x7e800000 - 1);
+			const auto mask_de = eval(noncast<u32[4]>(sext<s32[4]>(abs_a < 0x800000)) >> 1);
+			set_vr(op.rt, (bitcast<s32[4]>(fre(a)) & ~mask_ov) | noncast<s32[4]>(mask_de));
+		}
 		else
-			set_vr(op.rt, fsplat<f32[4]>(1.0) / get_vr<f32[4]>(op.ra));
+			set_vr(op.rt, fre(get_vr<f32[4]>(op.ra)));
 	}
 
 	void FRSQEST(spu_opcode_t op)
