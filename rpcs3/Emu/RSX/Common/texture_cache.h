@@ -2083,26 +2083,15 @@ namespace rsx
 				}
 			}
 
-			// Sanity and format compatibility checks
-			if (dst_is_render_target)
-			{
-				if (src_subres.is_depth != dst_subres.is_depth)
-				{
-					// Create a cache-local resource to resolve later
-					// TODO: Support depth->RGBA typeless transfer for vulkan
-					dst_is_render_target = false;
-				}
-			}
-
 			if (src_is_render_target)
 			{
 				const auto surf = src_subres.surface;
 				const auto bpp = surf->get_bpp();
+
 				if (bpp != src_bpp)
 				{
 					//Enable type scaling in src
 					typeless_info.src_is_typeless = true;
-					typeless_info.src_is_depth = src_subres.is_depth;
 					typeless_info.src_scaling_hint = (f32)bpp / src_bpp;
 					typeless_info.src_gcm_format = src_is_argb8 ? CELL_GCM_TEXTURE_A8R8G8B8 : CELL_GCM_TEXTURE_R5G6B5;
 				}
@@ -2123,7 +2112,6 @@ namespace rsx
 				{
 					//Enable type scaling in dst
 					typeless_info.dst_is_typeless = true;
-					typeless_info.dst_is_depth = dst_subres.is_depth;
 					typeless_info.dst_scaling_hint = (f32)bpp / dst_bpp;
 					typeless_info.dst_gcm_format = dst_is_argb8 ? CELL_GCM_TEXTURE_A8R8G8B8 : CELL_GCM_TEXTURE_R5G6B5;
 				}
@@ -2156,6 +2144,20 @@ namespace rsx
 				else
 				{
 					//LOG_TRACE(RSX, "Blit transfer to surface with dims %dx%d", dst_dimensions.width, dst.height);
+				}
+
+				if (dst_is_render_target && dst_subres.is_depth != src_subres.is_depth)
+				{
+					// Change this to match source aspect
+					typeless_info.dst_is_typeless = true;
+					if (src_subres.is_depth)
+					{
+						typeless_info.dst_gcm_format = (dst_is_argb8)? CELL_GCM_TEXTURE_DEPTH24_D8 : CELL_GCM_TEXTURE_DEPTH16;
+					}
+					else
+					{
+						typeless_info.dst_gcm_format = (dst_is_argb8)? CELL_GCM_TEXTURE_A8R8G8B8 : CELL_GCM_TEXTURE_R5G6B5;
+					}
 				}
 			}
 
@@ -2247,7 +2249,7 @@ namespace rsx
 			if (cached_dest && !use_null_region)
 			{
 				bool format_mismatch = false;
-				if (cached_dest->is_depth_texture() != src_subres.is_depth)
+				if (src_is_render_target && cached_dest->is_depth_texture() != src_subres.is_depth)
 				{
 					// Dest surface has the wrong 'aspect'
 					format_mismatch = true;
@@ -2273,6 +2275,8 @@ namespace rsx
 
 				if (format_mismatch)
 				{
+					LOG_WARNING(RSX, "Format mismatch on blit destination block. Performance warning.");
+
 					// The invalidate call before creating a new target will remove this section
 					cached_dest = nullptr;
 					dest_texture = 0;
@@ -2290,6 +2294,8 @@ namespace rsx
 				auto overlapping_surfaces = find_texture_from_range<false>(address_range::start_length(src_address, src_payload_length), src.pitch, lookup_mask);
 
 				auto old_src_area = src_area;
+				section_storage_type *cached_src = nullptr;
+
 				for (const auto &surface : overlapping_surfaces)
 				{
 					if (!surface->is_locked())
@@ -2352,27 +2358,14 @@ namespace rsx
 					if (src_area.x2 <= surface->get_width() &&
 						src_area.y2 <= surface->get_height())
 					{
-						vram_texture = surface->get_raw_texture();
-						typeless_info.src_context = surface->get_context();
-						typeless_info.src_is_depth = surface->is_depth_texture();
-
-						const bool dst_is_depth = cached_dest ? cached_dest->is_depth_texture() : dst_subres.is_depth;
-						if (dst_is_depth != typeless_info.src_is_depth && !typeless_info.dst_is_typeless)
-						{
-							// Transfer crosses the dreaded DEPTH_STENCIL<->COLOR barrier
-							// Transfer in a typeless context using this surface as the reference
-							typeless_info.dst_is_depth = dst_is_depth;
-							typeless_info.dst_is_typeless = true;
-							typeless_info.dst_gcm_format = surface->get_gcm_format();
-						}
-
+						cached_src = surface;
 						break;
 					}
 
 					src_area = old_src_area;
 				}
 
-				if (!vram_texture)
+				if (!cached_src)
 				{
 					const u16 full_width = src.pitch / src_bpp;
 					u32 image_base = src.rsx_address;
@@ -2408,10 +2401,36 @@ namespace rsx
 					subres.data = { vm::_ptr<const std::byte>(image_base), static_cast<gsl::span<const std::byte>::index_type>(src.pitch * image_height) };
 					subresource_layout.push_back(subres);
 
-					vram_texture = upload_image_from_cpu(cmd, rsx_range, image_width, image_height, 1, 1, src.pitch, gcm_format, texture_upload_context::blit_engine_src,
-						subresource_layout, rsx::texture_dimension_extended::texture_dimension_2d, dst.swizzled)->get_raw_texture();
+					cached_src = upload_image_from_cpu(cmd, rsx_range, image_width, image_height, 1, 1, src.pitch, gcm_format, texture_upload_context::blit_engine_src,
+						subresource_layout, rsx::texture_dimension_extended::texture_dimension_2d, dst.swizzled);
+				}
 
-					typeless_info.src_context = texture_upload_context::blit_engine_src;
+				vram_texture = cached_src->get_raw_texture();
+				typeless_info.src_context = cached_src->get_context();
+
+				// Validate format
+				const bool src_is_depth = cached_src->is_depth_texture();
+				bool format_mismatch;
+
+				if (dst_is_render_target)
+				{
+					format_mismatch = (src_is_depth != dst_subres.is_depth);
+				}
+				else if (use_null_region)
+				{
+					format_mismatch = (src_is_depth != cached_dest->is_depth_texture());
+				}
+				else
+				{
+					format_mismatch = false;
+				}
+
+				if (format_mismatch)
+				{
+					// Transfer crosses the dreaded DEPTH_STENCIL<->COLOR barrier
+					// Transfer in a typeless context using this surface as the reference
+					typeless_info.dst_is_typeless = true;
+					typeless_info.dst_gcm_format = cached_src->get_gcm_format();
 				}
 			}
 			else
