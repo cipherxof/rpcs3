@@ -457,7 +457,6 @@ namespace vk
 						typeless_info.src_is_typeless = true;
 						typeless_info.src_context = rsx::texture_upload_context::framebuffer_storage;
 						typeless_info.src_native_format_override = (u32)info.format;
-						typeless_info.src_is_depth = is_depth;
 						typeless_info.src_scaling_hint = f32(src_bpp) / dst_bpp;
 					}
 				}
