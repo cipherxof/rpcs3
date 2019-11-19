@@ -158,15 +158,16 @@ std::pair<named_thread<spu_thread>*, std::shared_ptr<lv2_spu_group>> lv2_spu_gro
 		return {};
 	}
 
-	auto group = idm::get<lv2_spu_group>((id & 0xFFFFFF) | (lv2_spu_group::id_base & ~0xFFFFFF));
+	// Bits 0-23 contain group id (without id base)
+	decltype(get_spu_thread(0)) res{nullptr, idm::get<lv2_spu_group>((id & 0xFFFFFF) | (lv2_spu_group::id_base & ~0xFFFFFF))};
 
-	if (!group)
+	if (auto group = res.second.get())
 	{
-		return {};
+		// Bits 24-31 contain thread index within the group
+		res.first = group->threads[id >> 24];
 	}
 
-	const u32 thread_index = id >> 24;
-	return {+group->threads[thread_index], std::move(group)};
+	return res;
 }
 
 error_code sys_spu_initialize(ppu_thread& ppu, u32 max_usable_spu, u32 max_raw_spu)
