@@ -501,7 +501,7 @@ namespace vk
 					this->get_surface(rsx::surface_access::transfer),
 					src_area,
 					dst_area,
-					/*linear?*/false, /*depth?(unused)*/false, typeless_info);
+					/*linear?*/false, typeless_info);
 
 				optimize_copy = optimize_copy && !memory_load;
 				newest_tag = src_texture->last_use_tag;

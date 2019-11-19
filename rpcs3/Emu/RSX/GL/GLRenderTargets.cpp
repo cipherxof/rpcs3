@@ -507,7 +507,7 @@ void gl::render_target::memory_barrier(gl::command_context& cmd, bool force_init
 		gl::g_hw_blitter->scale_image(cmd, section.source, this,
 			section.src_rect(),
 			section.dst_rect(),
-			!dst_is_depth, dst_is_depth, typeless_info);
+			!dst_is_depth, typeless_info);
 
 		newest_tag = src_texture->last_use_tag;
 	}
