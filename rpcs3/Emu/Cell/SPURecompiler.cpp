@@ -7188,12 +7188,11 @@ public:
 		// TODO (use doubles for xfloat)
 		if (g_cfg.core.spu_accurate_xfloat)
 		{
-			const auto a = get_vr<s32[4]>(op.ra);
-			const auto sign = eval(a & ~0x7fffffff); 
-			const auto abs_a = bitcast<s32[4]>(a & ~sign);
-			const auto mask_ov = eval(sext<s32[4]>(abs_a > 0x7e800000 - 1) & (sign | 0x7fffffff));
-			const auto mask_de = sext<s32[4]>(abs_a < 0x800000);
-			set_vr(op.rt, (bitcast<s32[4]>(fre(eval(bitcast<f32[4]>(a)))) & ~mask_ov) | mask_de);
+			const auto a = get_vr<f32[4]>(op.ra);
+			const auto abs_a = eval(bitcast<s32[4]>(fabs(a)));
+			const auto mask_ov = sext<s32[4]>(abs_a > 0x7e800000 - 1);
+			const auto mask_de = eval(noncast<u32[4]>(sext<s32[4]>(abs_a < 0x800000)) >> 1);
+			set_vr(op.rt, (bitcast<s32[4]>(fre(a)) & ~mask_ov) | noncast<s32[4]>(mask_de));
 		}
 		else
 			set_vr(op.rt, fre(get_vr<f32[4]>(op.ra)));
