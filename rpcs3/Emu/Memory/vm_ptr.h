@@ -135,6 +135,13 @@ namespace vm
 			return alignof(T);
 		}
 
+		// Checks if it's okay to access pointee
+		bool valid(u32 sz = size()) const
+		{
+			constexpr auto flags = std::is_const_v<T> ? vm::page_readable : vm::page_writable;
+			return vm::check_addr(addr(), sz, flags);
+		}
+
 		_ptr_base<T, u32> operator +() const
 		{
 			return vm::cast(m_addr, HERE);
