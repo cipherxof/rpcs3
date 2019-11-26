@@ -412,32 +412,36 @@ error_code sceNpTrophyRegisterContext(ppu_thread& ppu, u32 context, u32 handle, 
 		{ SCE_NP_TROPHY_STATUS_PROCESSING_COMPLETE, 0 }
 	};
 
-	static atomic_t<u32> queued;
-
-	queued = 0;
 	lv2_obj::sleep(ppu);
+
+	// Create a counter which is destroyed after the function ends
+	const auto queued = std::make_shared<atomic_t<u32>>(0);
+	std::weak_ptr<atomic_t<u32>> wkptr = queued;
 
 	for (auto status : statuses)
 	{
 		// One status max per cellSysutilCheckCallback call
-		queued += status.second;
+		*queued += status.second;
 		for (u32 completed = 0; completed <= status.second; completed++)
 		{
-			sysutil_register_cb([=](ppu_thread& cb_ppu) -> s32
+			sysutil_register_cb([statusCb, status, context, completed, arg, wkptr](ppu_thread& cb_ppu) -> s32
 			{
 				statusCb(cb_ppu, context, status.first, completed, status.second, arg);
-				if (queued-- == 1)
+
+				const auto queued = wkptr.lock();
+				if (queued && (*queued)-- == 1)
 				{
-					queued.notify_all();
+					queued->notify_all();
 				}
+
 				return 0;
 			});
 		}
 
 		// If too much time passes just send the rest of the events anyway
-		if (const u32 val = queued)
+		if (const u32 val = *queued)
 		{
-			queued.wait(val, atomic_wait_timeout{300000});
+			queued->wait(val, atomic_wait_timeout{300000});
 		}
 
 		if (ppu.is_stopped())
