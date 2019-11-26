@@ -851,16 +851,16 @@ error_code sys_spu_thread_write_ls(ppu_thread& ppu, u32 id, u32 lsa, u64 value, 
 
 	sys_spu.trace("sys_spu_thread_write_ls(id=0x%x, lsa=0x%05x, value=0x%llx, type=%d)", id, lsa, value, type);
 
+	if (lsa >= 0x40000 || type > 8 || !type || (type | lsa) & (type - 1)) // check range and alignment
+	{
+		return CELL_EINVAL;
+	}
+
 	const auto [thread, group] = lv2_spu_group::get_spu_thread(id);
 
 	if (UNLIKELY(!thread))
 	{
 		return CELL_ESRCH;
-	}
-
-	if (lsa >= 0x40000 || lsa + type > 0x40000 || lsa % type) // check range and alignment
-	{
-		return CELL_EINVAL;
 	}
 
 	std::lock_guard lock(group->mutex);
@@ -876,7 +876,7 @@ error_code sys_spu_thread_write_ls(ppu_thread& ppu, u32 id, u32 lsa, u64 value, 
 	case 2: thread->_ref<u16>(lsa) = (u16)value; break;
 	case 4: thread->_ref<u32>(lsa) = (u32)value; break;
 	case 8: thread->_ref<u64>(lsa) = value; break;
-	default: return CELL_EINVAL;
+	default: ASSUME(0);
 	}
 
 	return CELL_OK;
@@ -888,16 +888,16 @@ error_code sys_spu_thread_read_ls(ppu_thread& ppu, u32 id, u32 lsa, vm::ptr<u64>
 
 	sys_spu.trace("sys_spu_thread_read_ls(id=0x%x, lsa=0x%05x, value=*0x%x, type=%d)", id, lsa, value, type);
 
+	if (lsa >= 0x40000 || type > 8 || !type || (type | lsa) & (type - 1)) // check range and alignment
+	{
+		return CELL_EINVAL;
+	}
+
 	const auto [thread, group] = lv2_spu_group::get_spu_thread(id);
 
 	if (UNLIKELY(!thread))
 	{
 		return CELL_ESRCH;
-	}
-
-	if (lsa >= 0x40000 || lsa + type > 0x40000 || lsa % type) // check range and alignment
-	{
-		return CELL_EINVAL;
 	}
 
 	std::lock_guard lock(group->mutex);
@@ -913,7 +913,7 @@ error_code sys_spu_thread_read_ls(ppu_thread& ppu, u32 id, u32 lsa, vm::ptr<u64>
 	case 2: *value = thread->_ref<u16>(lsa); break;
 	case 4: *value = thread->_ref<u32>(lsa); break;
 	case 8: *value = thread->_ref<u64>(lsa); break;
-	default: return CELL_EINVAL;
+	default: ASSUME(0);
 	}
 
 	return CELL_OK;
@@ -1356,6 +1356,43 @@ error_code sys_spu_thread_group_disconnect_event_all_threads(ppu_thread& ppu, u3
 		{
 			t->spup[spup].reset();
 		}
+	}
+
+	return CELL_OK;
+}
+
+error_code sys_spu_thread_group_log(ppu_thread& ppu, s32 command, vm::ptr<s32> stat)
+{
+	vm::temporary_unlock(ppu);
+
+	sys_spu.warning("sys_spu_thread_group_log(command=0x%x, stat=*0x%x)", command, stat);
+
+	struct spu_group_log_state_t
+	{
+		atomic_t<s32> state = SYS_SPU_THREAD_GROUP_LOG_ON;
+	};
+
+	const auto state = g_fxo->get<spu_group_log_state_t>();
+
+	switch (command)
+	{
+	case SYS_SPU_THREAD_GROUP_LOG_GET_STATUS:
+	{
+		if (!stat)
+		{
+			return CELL_EFAULT;
+		}
+
+		*stat = state->state;
+		break;
+	}
+	case SYS_SPU_THREAD_GROUP_LOG_ON:
+	case SYS_SPU_THREAD_GROUP_LOG_OFF:
+	{
+		state->state.release(command);
+		break;
+	}
+	default: return CELL_EINVAL;
 	}
 
 	return CELL_OK;
