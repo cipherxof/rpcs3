@@ -135,6 +135,13 @@ namespace vm
 			return alignof(T);
 		}
 
+		// Checks if it's okay to access pointee
+		bool valid(u32 sz = size()) const
+		{
+			constexpr auto flags = std::is_const_v<T> ? vm::page_readable : vm::page_writable;
+			return vm::check_addr(addr(), sz, flags);
+		}
+
 		_ptr_base<T, u32> operator +() const
 		{
 			return vm::cast(m_addr, HERE);
@@ -198,6 +205,16 @@ namespace vm
 		{
 			m_addr = vm::cast(m_addr, HERE) - count * size();
 			return *this;
+		}
+
+		bool try_read(std::conditional_t<std::is_void_v<T>, char&, std::add_lvalue_reference_t<std::remove_const_t<T>>> out) const
+		{
+			return vm::try_access(vm::cast(m_addr, HERE), &out, sizeof(T), false);
+		}
+
+		bool try_write(std::conditional_t<std::is_void_v<T>, const char&, std::add_lvalue_reference_t<const T>> _in) const
+		{
+			return vm::try_access(vm::cast(m_addr, HERE), const_cast<T*>(&_in), sizeof(T), true);
 		}
 	};
 

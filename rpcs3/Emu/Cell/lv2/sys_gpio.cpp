@@ -15,7 +15,7 @@ error_code sys_gpio_get(u64 device_id, vm::ptr<u64> value)
 		return CELL_ESRCH;
 	}
 
-	if (!vm::check_addr(value.addr(), value.size(), vm::page_writable))
+	if (!value.valid())
 	{
 		return CELL_EFAULT;
 	}

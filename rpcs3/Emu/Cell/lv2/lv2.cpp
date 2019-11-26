@@ -298,7 +298,7 @@ const std::array<ppu_function_t, 1024> s_ppu_syscall_table
 	BIND_FUNC(sys_spu_thread_group_connect_event_all_threads), //251 (0x0FB)
 	BIND_FUNC(sys_spu_thread_group_disconnect_event_all_threads), //252 (0x0FC)
 	null_func,//BIND_FUNC(sys_spu_thread_group...)          //253 (0x0FD)
-	null_func,//BIND_FUNC(sys_spu_thread_group_log)         //254 (0x0FE)
+	BIND_FUNC(sys_spu_thread_group_log),                    //254 (0x0FE)
 
 	uns_func, uns_func, uns_func, uns_func, uns_func,       //255-259  UNS
 
@@ -1071,17 +1071,17 @@ void lv2_obj::awake_unlocked(cpu_thread* cpu, u32 prio)
 	// Check thread type
 	AUDIT(!cpu || cpu->id_type() == 1);
 
-	if (prio <= INT32_MAX)
+	if (prio < INT32_MAX)
 	{
-		// Priority set
-		const u32 _prio = static_cast<ppu_thread*>(cpu)->prio.exchange(prio);
+		// Set priority
+		const u32 old = static_cast<ppu_thread*>(cpu)->prio.exchange(prio);
 
-		if (_prio == prio)
+		if (prio == old)
 		{
 			return;
 		}
 
-		if (_prio < prio)
+		if (prio > old)
 		{
 			// Yield
 			prio = -4;
@@ -1152,12 +1152,17 @@ void lv2_obj::awake_unlocked(cpu_thread* cpu, u32 prio)
 
 		if (to_rotate <= 1)
 		{
+			// Either the thread is not found or no work should be done
 			return;
 		}
 
 		// Put the current thread at the back of the range
 		std::rotate(current, current + 1, current + to_rotate);
-		static_cast<ppu_thread*>(cpu)->start_time = get_guest_system_time();
+
+		if (cpu == get_current_cpu_thread())
+		{
+			static_cast<ppu_thread*>(cpu)->start_time = get_guest_system_time();
+		}
 	}
 	else if (cpu)
 	{

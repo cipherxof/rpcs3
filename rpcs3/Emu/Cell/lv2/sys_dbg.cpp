@@ -27,7 +27,7 @@ error_code sys_dbg_read_process_memory(s32 pid, u32 address, u32 size, vm::ptr<v
 	}
 
 	// Check if data destination is writable
-	if (!vm::check_addr(data.addr(), size, vm::page_writable))
+	if (!data.valid(size))
 	{
 		return CELL_EFAULT;
 	}
@@ -58,7 +58,7 @@ error_code sys_dbg_write_process_memory(s32 pid, u32 address, u32 size, vm::cptr
 	}
 
 	// Check if data source is readable
-	if (!vm::check_addr(data.addr(), size, vm::page_readable))
+	if (!data.valid(size))
 	{
 		return CELL_EFAULT;
 	}
