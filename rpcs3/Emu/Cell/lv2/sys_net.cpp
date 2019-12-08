@@ -175,13 +175,8 @@ struct network_thread
 	{
 #ifdef _WIN32
 		WSACleanup();
-		CloseHandle(_eventh);
 #endif
 	}
-
-#ifdef _WIN32
-	HANDLE _eventh = CreateEventW(nullptr, false, false, nullptr);
-#endif
 
 	void operator()()
 	{
@@ -190,16 +185,13 @@ struct network_thread
 
 		s_to_awake.clear();
 
-#ifdef _WIN32
-#else
 		::pollfd fds[lv2_socket::id_count]{};
-#endif
 
 		while (thread_ctrl::state() != thread_state::aborting)
 		{
 			// Wait with 1ms timeout
 #ifdef _WIN32
-			WaitForSingleObjectEx(_eventh, 1, false);
+			::WSAPoll(fds, socklist.size(), 1);
 #else
 			::poll(fds, socklist.size(), 1);
 #endif
@@ -212,40 +204,12 @@ struct network_thread
 
 				lv2_socket& sock = *socklist[i];
 
-#ifdef _WIN32
-				WSANETWORKEVENTS nwe;
-				if (WSAEnumNetworkEvents(sock.socket, nullptr, &nwe) == 0)
-				{
-					sock.ev_set |= nwe.lNetworkEvents;
-
-					if (sock.ev_set & (FD_READ | FD_ACCEPT | FD_CLOSE) && sock.events.test_and_reset(lv2_socket::poll::read))
-						events += lv2_socket::poll::read;
-					if (sock.ev_set & (FD_WRITE | FD_CONNECT) && sock.events.test_and_reset(lv2_socket::poll::write))
-						events += lv2_socket::poll::write;
-
-					if ((nwe.lNetworkEvents & FD_READ && nwe.iErrorCode[FD_READ_BIT]) ||
-						(nwe.lNetworkEvents & FD_ACCEPT && nwe.iErrorCode[FD_ACCEPT_BIT]) ||
-						(nwe.lNetworkEvents & FD_CLOSE && nwe.iErrorCode[FD_CLOSE_BIT]) ||
-						(nwe.lNetworkEvents & FD_WRITE && nwe.iErrorCode[FD_WRITE_BIT]) ||
-						(nwe.lNetworkEvents & FD_CONNECT && nwe.iErrorCode[FD_CONNECT_BIT]))
-					{
-						// TODO
-						if (sock.events.test_and_reset(lv2_socket::poll::error))
-							events += lv2_socket::poll::error;
-					}
-				}
-				else
-				{
-					sys_net.error("WSAEnumNetworkEvents() failed (s=%d)", i);
-				}
-#else
 				if (fds[i].revents & (POLLIN | POLLHUP) && socklist[i]->events.test_and_reset(lv2_socket::poll::read))
 					events += lv2_socket::poll::read;
 				if (fds[i].revents & POLLOUT && socklist[i]->events.test_and_reset(lv2_socket::poll::write))
 					events += lv2_socket::poll::write;
 				if (fds[i].revents & POLLERR && socklist[i]->events.test_and_reset(lv2_socket::poll::error))
 					events += lv2_socket::poll::error;
-#endif
 
 				if (events)
 				{
@@ -295,16 +259,12 @@ struct network_thread
 			{
 				auto events = socklist[i]->events.load();
 
-#ifdef _WIN32
-				verify(HERE), 0 == WSAEventSelect(socklist[i]->socket, _eventh, FD_READ | FD_ACCEPT | FD_CLOSE | FD_WRITE | FD_CONNECT);
-#else
 				fds[i].fd = events ? socklist[i]->socket : -1;
 				fds[i].events =
 					(events & lv2_socket::poll::read ? POLLIN : 0) |
 					(events & lv2_socket::poll::write ? POLLOUT : 0) |
 					0;
 				fds[i].revents = 0;
-#endif
 			}
 		}
 	}
@@ -353,7 +313,7 @@ error_code sys_net_bnet_accept(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sockaddr>
 #ifdef _WIN32
 			sock.ev_set &= ~FD_ACCEPT;
 #endif
-			native_socket = ::accept(sock.socket, (::sockaddr*)&native_addr, &native_addrlen);
+			native_socket = ::accept(sock.socket, reinterpret_cast<struct sockaddr*>(&native_addr), &native_addrlen);
 
 			if (native_socket != -1)
 			{
@@ -377,7 +337,7 @@ error_code sys_net_bnet_accept(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sockaddr>
 #ifdef _WIN32
 				sock.ev_set &= ~FD_ACCEPT;
 #endif
-				native_socket = ::accept(sock.socket, (::sockaddr*)&native_addr, &native_addrlen);
+				native_socket = ::accept(sock.socket, reinterpret_cast<struct sockaddr*>(&native_addr), &native_addrlen);
 
 				if (native_socket != -1 || (result = get_last_error(!sock.so_nbio)))
 				{
@@ -459,8 +419,8 @@ error_code sys_net_bnet_accept(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sockaddr>
 
 		paddr->sin_len    = sizeof(sys_net_sockaddr_in);
 		paddr->sin_family = SYS_NET_AF_INET;
-		paddr->sin_port   = ntohs(((::sockaddr_in*)&native_addr)->sin_port);
-		paddr->sin_addr   = ntohl(((::sockaddr_in*)&native_addr)->sin_addr.s_addr);
+		paddr->sin_port   = ntohs(reinterpret_cast<struct sockaddr_in*>(&native_addr)->sin_port);
+		paddr->sin_addr   = ntohl(reinterpret_cast<struct sockaddr_in*>(&native_addr)->sin_addr.s_addr);
 		paddr->sin_zero   = 0;
 	}
 
@@ -480,17 +440,19 @@ error_code sys_net_bnet_bind(ppu_thread& ppu, s32 s, vm::cptr<sys_net_sockaddr> 
 		return -SYS_NET_EAFNOSUPPORT;
 	}
 
+	const auto psa_in = vm::_ptr<const sys_net_sockaddr_in>(addr.addr());
+
 	::sockaddr_in name{};
 	name.sin_family      = AF_INET;
-	name.sin_port        = htons(((sys_net_sockaddr_in*)addr.get_ptr())->sin_port);
-	name.sin_addr.s_addr = htonl(((sys_net_sockaddr_in*)addr.get_ptr())->sin_addr);
+	name.sin_port        = htons(psa_in->sin_port);
+	name.sin_addr.s_addr = htonl(psa_in->sin_addr);
 	::socklen_t namelen  = sizeof(name);
 
 	const auto sock = idm::check<lv2_socket>(s, [&](lv2_socket& sock) -> sys_net_error
 	{
 		std::lock_guard lock(sock.mutex);
 
-		if (::bind(sock.socket, (::sockaddr*)&name, namelen) == 0)
+		if (::bind(sock.socket, reinterpret_cast<struct sockaddr*>(&name), namelen) == 0)
 		{
 			return {};
 		}
@@ -517,27 +479,29 @@ error_code sys_net_bnet_connect(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sockaddr
 
 	sys_net.warning("sys_net_bnet_connect(s=%d, addr=*0x%x, addrlen=%u)", s, addr, addrlen);
 
+	const auto psa_in = vm::_ptr<sys_net_sockaddr_in>(addr.addr());
+
 	s32 result = 0;
 	::sockaddr_in name{};
 	name.sin_family      = AF_INET;
-	name.sin_port        = htons(((sys_net_sockaddr_in*)addr.get_ptr())->sin_port);
-	name.sin_addr.s_addr = htonl(((sys_net_sockaddr_in*)addr.get_ptr())->sin_addr);
+	name.sin_port        = htons(psa_in->sin_port);
+	name.sin_addr.s_addr = htonl(psa_in->sin_addr);
 	::socklen_t namelen  = sizeof(name);
 
 	const auto sock = idm::check<lv2_socket>(s, [&](lv2_socket& sock)
 	{
 		std::lock_guard lock(sock.mutex);
 
-		if (addr->sa_family == 0 && !((sys_net_sockaddr_in*)addr.get_ptr())->sin_port && !((sys_net_sockaddr_in*)addr.get_ptr())->sin_addr)
+		if (addr->sa_family == 0 && !psa_in->sin_port && !psa_in->sin_addr)
 		{
 			// Hack for DNS (8.8.8.8:53)
 			name.sin_port        = htons(53);
 			name.sin_addr.s_addr = 0x08080808;
 
 			// Overwrite arg (probably used to validate recvfrom addr)
-			((sys_net_sockaddr_in*)addr.get_ptr())->sin_family = SYS_NET_AF_INET;
-			((sys_net_sockaddr_in*)addr.get_ptr())->sin_port   = 53;
-			((sys_net_sockaddr_in*)addr.get_ptr())->sin_addr   = 0x08080808;
+			psa_in->sin_family = SYS_NET_AF_INET;
+			psa_in->sin_port   = 53;
+			psa_in->sin_addr   = 0x08080808;
 			sys_net.warning("sys_net_bnet_connect(s=%d): using DNS 8.8.8.8:53...");
 		}
 		else if (addr->sa_family != SYS_NET_AF_INET)
@@ -545,7 +509,7 @@ error_code sys_net_bnet_connect(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sockaddr
 			sys_net.error("sys_net_bnet_connect(s=%d): unsupported sa_family (%d)", s, addr->sa_family);
 		}
 
-		if (::connect(sock.socket, (::sockaddr*)&name, namelen) == 0)
+		if (::connect(sock.socket, reinterpret_cast<struct sockaddr*>(&name), namelen) == 0)
 		{
 			return true;
 		}
@@ -573,7 +537,7 @@ error_code sys_net_bnet_connect(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sockaddr
 #endif
 						int native_error;
 						::socklen_t size = sizeof(native_error);
-						if (::getsockopt(sock.socket, SOL_SOCKET, SO_ERROR, (char*)&native_error, &size) != 0 || size != sizeof(int))
+						if (::getsockopt(sock.socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&native_error), &size) != 0 || size != sizeof(int))
 						{
 							sock.so_error = 1;
 						}
@@ -604,7 +568,7 @@ error_code sys_net_bnet_connect(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sockaddr
 #endif
 				int native_error;
 				::socklen_t size = sizeof(native_error);
-				if (::getsockopt(sock.socket, SOL_SOCKET, SO_ERROR, (char*)&native_error, &size) != 0 || size != sizeof(int))
+				if (::getsockopt(sock.socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&native_error), &size) != 0 || size != sizeof(int))
 				{
 					result = 1;
 				}
@@ -680,7 +644,7 @@ error_code sys_net_bnet_getpeername(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sock
 		::sockaddr_storage native_addr;
 		::socklen_t native_addrlen = sizeof(native_addr);
 
-		if (::getpeername(sock.socket, (::sockaddr*)&native_addr, &native_addrlen) == 0)
+		if (::getpeername(sock.socket, reinterpret_cast<struct sockaddr*>(&native_addr), &native_addrlen) == 0)
 		{
 			verify(HERE), native_addr.ss_family == AF_INET;
 
@@ -693,8 +657,8 @@ error_code sys_net_bnet_getpeername(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sock
 
 			paddr->sin_len    = sizeof(sys_net_sockaddr_in);
 			paddr->sin_family = SYS_NET_AF_INET;
-			paddr->sin_port   = ntohs(((::sockaddr_in*)&native_addr)->sin_port);
-			paddr->sin_addr   = ntohl(((::sockaddr_in*)&native_addr)->sin_addr.s_addr);
+			paddr->sin_port   = ntohs(reinterpret_cast<struct sockaddr_in*>(&native_addr)->sin_port);
+			paddr->sin_addr   = ntohl(reinterpret_cast<struct sockaddr_in*>(&native_addr)->sin_addr.s_addr);
 			paddr->sin_zero   = 0;
 			return {};
 		}
@@ -728,7 +692,7 @@ error_code sys_net_bnet_getsockname(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sock
 		::sockaddr_storage native_addr;
 		::socklen_t native_addrlen = sizeof(native_addr);
 
-		if (::getsockname(sock.socket, (::sockaddr*)&native_addr, &native_addrlen) == 0)
+		if (::getsockname(sock.socket, reinterpret_cast<struct sockaddr*>(&native_addr), &native_addrlen) == 0)
 		{
 			verify(HERE), native_addr.ss_family == AF_INET;
 
@@ -741,8 +705,8 @@ error_code sys_net_bnet_getsockname(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sock
 
 			paddr->sin_len    = sizeof(sys_net_sockaddr_in);
 			paddr->sin_family = SYS_NET_AF_INET;
-			paddr->sin_port   = ntohs(((::sockaddr_in*)&native_addr)->sin_port);
-			paddr->sin_addr   = ntohl(((::sockaddr_in*)&native_addr)->sin_addr.s_addr);
+			paddr->sin_port   = ntohs(reinterpret_cast<struct sockaddr_in*>(&native_addr)->sin_port);
+			paddr->sin_addr   = ntohl(reinterpret_cast<struct sockaddr_in*>(&native_addr)->sin_addr.s_addr);
 			paddr->sin_zero   = 0;
 			return {};
 		}
@@ -799,13 +763,13 @@ error_code sys_net_bnet_getsockopt(ppu_thread& ppu, s32 s, s32 level, s32 optnam
 			case SYS_NET_SO_NBIO:
 			{
 				// Special
-				*(be_t<s32>*)optval.get_ptr() = sock.so_nbio;
+				vm::_ref<s32>(optval.addr()) = sock.so_nbio;
 				return {};
 			}
 			case SYS_NET_SO_ERROR:
 			{
 				// Special
-				*(be_t<s32>*)optval.get_ptr() = std::exchange(sock.so_error, 0);
+				vm::_ref<s32>(optval.addr()) = std::exchange(sock.so_error, 0);
 				return {};
 			}
 			case SYS_NET_SO_KEEPALIVE:
@@ -841,12 +805,12 @@ error_code sys_net_bnet_getsockopt(ppu_thread& ppu, s32 s, s32 level, s32 optnam
 #ifdef _WIN32
 			case SYS_NET_SO_REUSEADDR:
 			{
-				*(be_t<s32>*)optval.get_ptr() = sock.so_reuseaddr;
+				vm::_ref<s32>(optval.addr()) = sock.so_reuseaddr;
 				return {};
 			}
 			case SYS_NET_SO_REUSEPORT:
 			{
-				*(be_t<s32>*)optval.get_ptr() = sock.so_reuseport;
+				vm::_ref<s32>(optval.addr()) = sock.so_reuseport;
 				return {};
 			}
 #else
@@ -894,7 +858,7 @@ error_code sys_net_bnet_getsockopt(ppu_thread& ppu, s32 s, s32 level, s32 optnam
 			case SYS_NET_TCP_MAXSEG:
 			{
 				// Special (no effect)
-				*(be_t<s32>*)optval.get_ptr() = sock.so_tcp_maxseg;
+				vm::_ref<s32>(optval.addr()) = sock.so_tcp_maxseg;
 				return {};
 			}
 			case SYS_NET_TCP_NODELAY:
@@ -928,20 +892,20 @@ error_code sys_net_bnet_getsockopt(ppu_thread& ppu, s32 s, s32 level, s32 optnam
 			case SYS_NET_SO_RCVTIMEO:
 			{
 				// TODO
-				*(sys_net_timeval*)optval.get_ptr() = { ::narrow<s64>(native_val.timeo.tv_sec), ::narrow<s64>(native_val.timeo.tv_usec) };
+				vm::_ref<sys_net_timeval>(optval.addr()) = { ::narrow<s64>(native_val.timeo.tv_sec), ::narrow<s64>(native_val.timeo.tv_usec) };
 				return {};
 			}
 			case SYS_NET_SO_LINGER:
 			{
 				// TODO
-				*(sys_net_linger*)optval.get_ptr() = { ::narrow<s32>(native_val.linger.l_onoff), ::narrow<s32>(native_val.linger.l_linger) };
+				vm::_ref<sys_net_linger>(optval.addr()) = { ::narrow<s32>(native_val.linger.l_onoff), ::narrow<s32>(native_val.linger.l_linger) };
 				return {};
 			}
 			}
 		}
 
 		// Fallback to int
-		*(be_t<s32>*)optval.get_ptr() = native_val._int;
+		vm::_ref<s32>(optval.addr()) = native_val._int;
 		return {};
 	});
 
@@ -1025,7 +989,7 @@ error_code sys_net_bnet_recvfrom(ppu_thread& ppu, s32 s, vm::ptr<void> buf, u32 
 #ifdef _WIN32
 			if (!(native_flags & MSG_PEEK)) sock.ev_set &= ~FD_READ;
 #endif
-			native_result = ::recvfrom(sock.socket, (char*)buf.get_ptr(), len, native_flags, (::sockaddr*)&native_addr, &native_addrlen);
+			native_result = ::recvfrom(sock.socket, reinterpret_cast<char*>(buf.get_ptr()), len, native_flags, reinterpret_cast<struct sockaddr*>(&native_addr), &native_addrlen);
 
 			if (native_result >= 0)
 			{
@@ -1049,7 +1013,7 @@ error_code sys_net_bnet_recvfrom(ppu_thread& ppu, s32 s, vm::ptr<void> buf, u32 
 #ifdef _WIN32
 				if (!(native_flags & MSG_PEEK)) sock.ev_set &= ~FD_READ;
 #endif
-				native_result = ::recvfrom(sock.socket, (char*)buf.get_ptr(), len, native_flags, (::sockaddr*)&native_addr, &native_addrlen);
+				native_result = ::recvfrom(sock.socket, reinterpret_cast<char*>(buf.get_ptr()), len, native_flags, reinterpret_cast<struct sockaddr*>(&native_addr), &native_addrlen);
 
 				if (native_result >= 0 || (result = get_last_error(!sock.so_nbio && (flags & SYS_NET_MSG_DONTWAIT) == 0)))
 				{
@@ -1123,8 +1087,8 @@ error_code sys_net_bnet_recvfrom(ppu_thread& ppu, s32 s, vm::ptr<void> buf, u32 
 
 		paddr->sin_len    = sizeof(sys_net_sockaddr_in);
 		paddr->sin_family = SYS_NET_AF_INET;
-		paddr->sin_port   = ntohs(((::sockaddr_in*)&native_addr)->sin_port);
-		paddr->sin_addr   = ntohl(((::sockaddr_in*)&native_addr)->sin_addr.s_addr);
+		paddr->sin_port   = ntohs(reinterpret_cast<struct sockaddr_in*>(&native_addr)->sin_port);
+		paddr->sin_addr   = ntohl(reinterpret_cast<struct sockaddr_in*>(&native_addr)->sin_addr.s_addr);
 		paddr->sin_zero   = 0;
 	}
 
@@ -1171,6 +1135,8 @@ error_code sys_net_bnet_sendto(ppu_thread& ppu, s32 s, vm::cptr<void> buf, u32 l
 		return -SYS_NET_EAFNOSUPPORT;
 	}
 
+	const auto psa_in = vm::_ptr<const sys_net_sockaddr_in>(addr.addr());
+
 	int native_flags = 0;
 	int native_result = -1;
 	::sockaddr_in name{};
@@ -1178,8 +1144,8 @@ error_code sys_net_bnet_sendto(ppu_thread& ppu, s32 s, vm::cptr<void> buf, u32 l
 	if (addr)
 	{
 		name.sin_family      = AF_INET;
-		name.sin_port        = htons(((sys_net_sockaddr_in*)addr.get_ptr())->sin_port);
-		name.sin_addr.s_addr = htonl(((sys_net_sockaddr_in*)addr.get_ptr())->sin_addr);
+		name.sin_port        = htons(psa_in->sin_port);
+		name.sin_addr.s_addr = htonl(psa_in->sin_addr);
 	}
 
 	::socklen_t namelen = sizeof(name);
@@ -1199,7 +1165,7 @@ error_code sys_net_bnet_sendto(ppu_thread& ppu, s32 s, vm::cptr<void> buf, u32 l
 #ifdef _WIN32
 			sock.ev_set &= ~FD_WRITE;
 #endif
-			native_result = ::sendto(sock.socket, (const char*)buf.get_ptr(), len, native_flags, addr ? (::sockaddr*)&name : nullptr, addr ? namelen : 0);
+			native_result = ::sendto(sock.socket, reinterpret_cast<const char*>(buf.get_ptr()), len, native_flags, addr ? reinterpret_cast<struct sockaddr*>(&name) : nullptr, addr ? namelen : 0);
 
 			if (native_result >= 0)
 			{
@@ -1223,7 +1189,7 @@ error_code sys_net_bnet_sendto(ppu_thread& ppu, s32 s, vm::cptr<void> buf, u32 l
 #ifdef _WIN32
 				sock.ev_set &= ~FD_WRITE;
 #endif
-				native_result = ::sendto(sock.socket, (const char*)buf.get_ptr(), len, native_flags, addr ? (::sockaddr*)&name : nullptr, addr ? namelen : 0);
+				native_result = ::sendto(sock.socket, reinterpret_cast<const char*>(buf.get_ptr()), len, native_flags, addr ? reinterpret_cast<struct sockaddr*>(&name) : nullptr, addr ? namelen : 0);
 
 				if (native_result >= 0 || (result = get_last_error(!sock.so_nbio && (flags & SYS_NET_MSG_DONTWAIT) == 0)))
 				{
@@ -1302,7 +1268,7 @@ error_code sys_net_bnet_setsockopt(ppu_thread& ppu, s32 s, s32 level, s32 optnam
 
 		if (optlen >= sizeof(int))
 		{
-			native_int = *(const be_t<s32>*)optval.get_ptr();
+			native_int = vm::_ref<s32>(optval.addr());
 		}
 		else
 		{
@@ -1387,8 +1353,8 @@ error_code sys_net_bnet_setsockopt(ppu_thread& ppu, s32 s, s32 level, s32 optnam
 				native_opt = optname == SYS_NET_SO_SNDTIMEO ? SO_SNDTIMEO : SO_RCVTIMEO;
 				native_val = &native_timeo;
 				native_len = sizeof(native_timeo);
-				native_timeo.tv_sec = ::narrow<int>(((const sys_net_timeval*)optval.get_ptr())->tv_sec);
-				native_timeo.tv_usec = ::narrow<int>(((const sys_net_timeval*)optval.get_ptr())->tv_usec);
+				native_timeo.tv_sec = ::narrow<int>(vm::_ptr<const sys_net_timeval>(optval.addr())->tv_sec);
+				native_timeo.tv_usec = ::narrow<int>(vm::_ptr<const sys_net_timeval>(optval.addr())->tv_usec);
 				break;
 			}
 			case SYS_NET_SO_LINGER:
@@ -1400,8 +1366,8 @@ error_code sys_net_bnet_setsockopt(ppu_thread& ppu, s32 s, s32 level, s32 optnam
 				native_opt = SO_LINGER;
 				native_val = &native_linger;
 				native_len = sizeof(native_linger);
-				native_linger.l_onoff = ((const sys_net_linger*)optval.get_ptr())->l_onoff;
-				native_linger.l_linger = ((const sys_net_linger*)optval.get_ptr())->l_linger;
+				native_linger.l_onoff = vm::_ptr<const sys_net_linger>(optval.addr())->l_onoff;
+				native_linger.l_linger = vm::_ptr<const sys_net_linger>(optval.addr())->l_linger;
 				break;
 			}
 			case SYS_NET_SO_USECRYPTO:
@@ -1453,7 +1419,7 @@ error_code sys_net_bnet_setsockopt(ppu_thread& ppu, s32 s, s32 level, s32 optnam
 			return SYS_NET_EINVAL;
 		}
 
-		if (::setsockopt(sock.socket, native_level, native_opt, (const char*)native_val, native_len) == 0)
+		if (::setsockopt(sock.socket, native_level, native_opt, reinterpret_cast<const char*>(native_val), native_len) == 0)
 		{
 			return {};
 		}
@@ -1610,15 +1576,11 @@ error_code sys_net_bnet_poll(ppu_thread& ppu, vm::ptr<sys_net_pollfd> fds, s32 n
 
 		reader_lock lock(id_manager::g_mutex);
 
-#ifndef _WIN32
 		::pollfd _fds[1024]{};
-#endif
 
 		for (s32 i = 0; i < nfds; i++)
 		{
-#ifndef _WIN32
 			_fds[i].fd = -1;
-#endif
 			fds[i].revents = 0;
 
 			if (fds[i].fd < 0)
@@ -1630,23 +1592,11 @@ error_code sys_net_bnet_poll(ppu_thread& ppu, vm::ptr<sys_net_pollfd> fds, s32 n
 			{
 				if (fds[i].events & ~(SYS_NET_POLLIN | SYS_NET_POLLOUT))
 					sys_net.error("sys_net_bnet_poll(fd=%d): events=0x%x", fds[i].fd, fds[i].events);
-#ifdef _WIN32
-				if (fds[i].events & SYS_NET_POLLIN && sock->ev_set & (FD_READ | FD_ACCEPT | FD_CLOSE))
-					fds[i].revents |= SYS_NET_POLLIN;
-				if (fds[i].events & SYS_NET_POLLOUT && sock->ev_set & (FD_WRITE | FD_CONNECT))
-					fds[i].revents |= SYS_NET_POLLOUT;
-
-				if (fds[i].revents)
-				{
-					signaled++;
-				}
-#else
 				_fds[i].fd = sock->socket;
 				if (fds[i].events & SYS_NET_POLLIN)
 					_fds[i].events |= POLLIN;
 				if (fds[i].events & SYS_NET_POLLOUT)
 					_fds[i].events |= POLLOUT;
-#endif
 			}
 			else
 			{
@@ -1655,9 +1605,11 @@ error_code sys_net_bnet_poll(ppu_thread& ppu, vm::ptr<sys_net_pollfd> fds, s32 n
 			}
 		}
 
-#ifndef _WIN32
+#ifdef _WIN32
+		::WSAPoll(_fds, nfds, 0);
+#else
 		::poll(_fds, nfds, 0);
-
+#endif
 		for (s32 i = 0; i < nfds; i++)
 		{
 			if (_fds[i].revents & (POLLIN | POLLHUP))
@@ -1672,7 +1624,6 @@ error_code sys_net_bnet_poll(ppu_thread& ppu, vm::ptr<sys_net_pollfd> fds, s32 n
 				signaled++;
 			}
 		}
-#endif
 
 		if (ms == 0 || signaled)
 		{
@@ -1785,15 +1736,11 @@ error_code sys_net_bnet_select(ppu_thread& ppu, s32 nfds, vm::ptr<sys_net_fd_set
 
 		reader_lock lock(id_manager::g_mutex);
 
-#ifndef _WIN32
 		::pollfd _fds[1024]{};
-#endif
 
 		for (s32 i = 0; i < nfds; i++)
 		{
-#ifndef _WIN32
 			_fds[i].fd = -1;
-#endif
 			bs_t<lv2_socket::poll> selected{};
 
 			if (readfds && readfds->bit(i))
@@ -1814,24 +1761,11 @@ error_code sys_net_bnet_select(ppu_thread& ppu, s32 nfds, vm::ptr<sys_net_fd_set
 
 			if (auto sock = idm::check_unlocked<lv2_socket>((lv2_socket::id_base & -1024) + i))
 			{
-#ifdef _WIN32
-				bool sig = false;
-				if (sock->ev_set & (FD_READ | FD_ACCEPT | FD_CLOSE) && selected & lv2_socket::poll::read)
-					sig = true, rread.set(i);
-				if (sock->ev_set & (FD_WRITE | FD_CONNECT) && selected & lv2_socket::poll::write)
-					sig = true, rwrite.set(i);
-
-				if (sig)
-				{
-					signaled++;
-				}
-#else
 				_fds[i].fd = sock->socket;
 				if (selected & lv2_socket::poll::read)
 					_fds[i].events |= POLLIN;
 				if (selected & lv2_socket::poll::write)
 					_fds[i].events |= POLLOUT;
-#endif
 			}
 			else
 			{
@@ -1839,9 +1773,11 @@ error_code sys_net_bnet_select(ppu_thread& ppu, s32 nfds, vm::ptr<sys_net_fd_set
 			}
 		}
 
-#ifndef _WIN32
+#ifdef _WIN32
+		::WSAPoll(_fds, nfds, 0);
+#else
 		::poll(_fds, nfds, 0);
-
+#endif
 		for (s32 i = 0; i < nfds; i++)
 		{
 			bool sig = false;
@@ -1855,7 +1791,6 @@ error_code sys_net_bnet_select(ppu_thread& ppu, s32 nfds, vm::ptr<sys_net_fd_set
 				signaled++;
 			}
 		}
-#endif
 
 		if ((_timeout && !timeout) || signaled)
 		{

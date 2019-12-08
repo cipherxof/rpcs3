@@ -309,6 +309,7 @@ error_code sys_event_flag_set(u32 id, u64 bitptn)
 
 			if (ppu.gpr[3] == CELL_OK)
 			{
+				flag->waiters--;
 				flag->append(cpu);
 				return true;
 			}
@@ -316,9 +317,11 @@ error_code sys_event_flag_set(u32 id, u64 bitptn)
 			return false;
 		});
 
-		flag->waiters -= count;
-		flag->sq.erase(tail, flag->sq.end());
-		lv2_obj::awake_all();
+		if (tail != flag->sq.end())
+		{
+			flag->sq.erase(tail, flag->sq.end());
+			lv2_obj::awake_all();
+		}
 	}
 
 	return CELL_OK;
@@ -369,19 +372,19 @@ error_code sys_event_flag_cancel(ppu_thread& ppu, u32 id, vm::ptr<u32> num)
 		value = ::size32(flag->sq);
 
 		// Signal all threads to return CELL_ECANCELED
-		while (auto thread = flag->schedule<ppu_thread>(flag->sq, SYS_SYNC_FIFO))
+		while (auto thread = flag->schedule<ppu_thread>(flag->sq, flag->protocol))
 		{
 			auto& ppu = static_cast<ppu_thread&>(*thread);
 
 			ppu.gpr[3] = CELL_ECANCELED;
 			ppu.gpr[6] = pattern;
 
+			flag->waiters--;
 			flag->append(thread);
 		}
 
 		if (value)
 		{
-			flag->waiters -= value;
 			lv2_obj::awake_all();
 		}
 	}

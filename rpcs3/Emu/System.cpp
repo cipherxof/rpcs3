@@ -331,6 +331,7 @@ void Emulator::Init()
 	if (const fs::file cfg_file{cfg_path, fs::read + fs::create})
 	{
 		g_cfg.from_string(cfg_file.to_string());
+		g_cfg.name = cfg_path;
 	}
 	else
 	{
@@ -1021,6 +1022,7 @@ void Emulator::Load(const std::string& title_id, bool add_only, bool force_globa
 			{
 				LOG_NOTICE(LOADER, "Applying custom config: %s", config_path_new);
 				g_cfg.from_string(cfg_file.to_string());
+				g_cfg.name = config_path_new;
 			}
 
 			// Load custom config-3
@@ -1724,7 +1726,7 @@ void Emulator::Resume()
 		{
 			if (vm::check_addr(i))
 			{
-				if (auto& data = *(be_t<u32>*)(vm::g_stat_addr + i))
+				if (auto& data = *reinterpret_cast<be_t<u32>*>(vm::g_stat_addr + i))
 				{
 					dis_asm.dump_pc = i;
 					dis_asm.disasm(i);

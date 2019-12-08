@@ -212,7 +212,7 @@ error_code sys_memory_get_page_attribute(u32 addr, vm::ptr<sys_page_attr_t> attr
 		return CELL_EINVAL;
 	}
 
-	if (!attr.valid())
+	if (!vm::check_addr(attr.addr(), attr.size()))
 	{
 		return CELL_EFAULT;
 	}

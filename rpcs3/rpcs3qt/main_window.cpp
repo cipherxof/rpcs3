@@ -1255,6 +1255,7 @@ void main_window::CreateConnects()
 		connect(&dlg, &settings_dialog::GuiSettingsSyncRequest, this, &main_window::ConfigureGuiFromSettings);
 		connect(&dlg, &settings_dialog::GuiStylesheetRequest, this, &main_window::RequestGlobalStylesheetChange);
 		connect(&dlg, &settings_dialog::GuiRepaintRequest, this, &main_window::RepaintGui);
+		connect(&dlg, &settings_dialog::accepted, this, &main_window::NotifyEmuSettingsChange);
 		dlg.exec();
 	};
 
@@ -1592,6 +1593,8 @@ void main_window::CreateDockWindows()
 	{
 		Boot(game->info.path, game->info.serial, false, false, force_global_config);
 	});
+
+	connect(m_gameListFrame, &game_list_frame::NotifyEmuSettingsChange, this, &main_window::NotifyEmuSettingsChange);
 }
 
 void main_window::ConfigureGuiFromSettings(bool configure_all)

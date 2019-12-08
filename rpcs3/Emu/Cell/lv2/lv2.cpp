@@ -1073,23 +1073,34 @@ void lv2_obj::awake_unlocked(cpu_thread* cpu, u32 prio)
 
 	if (prio < INT32_MAX)
 	{
-		// Set priority
-		const u32 old = static_cast<ppu_thread*>(cpu)->prio.exchange(prio);
+        // Priority set
+        if (static_cast<ppu_thread*>(cpu)->prio.exchange(prio) == prio || !unqueue(g_ppu, cpu))
+        {
+            return;
+        }
+	}
+	else if (prio == -4)
+	{
+		// Yield command
+		const u64 start_time = get_guest_system_time();
 
-		if (prio == old)
+		for (std::size_t i = 0, pos = -1; i < g_ppu.size(); i++)
 		{
-			return;
+			if (g_ppu[i] == cpu)
+			{
+				pos = i;
+				prio = g_ppu[i]->prio;
+			}
+			else if (i == pos + 1 && prio != -4 && g_ppu[i]->prio != prio)
+			{
+				return;
+			}
 		}
 
-		if (prio > old)
-		{
-			// Yield
-			prio = -4;
-		}
-		else if (!unqueue(g_ppu, cpu))
-		{
-			return;
-		}
+		unqueue(g_ppu, cpu);
+		unqueue(g_pending, cpu);
+
+		static_cast<ppu_thread*>(cpu)->start_time = start_time;
 	}
 
 	const auto emplace_thread = [](cpu_thread* const cpu)
@@ -1123,48 +1134,7 @@ void lv2_obj::awake_unlocked(cpu_thread* cpu, u32 prio)
 		LOG_TRACE(PPU, "awake(): %s", cpu->id);
 	};
 
-	if (prio == -4)
-	{
-		// Yield command
-		decltype(g_ppu.end()) current;
-		size_t to_rotate = 0;
-
-		for (auto it = g_ppu.begin(), end = g_ppu.end(); it != end; it++)
-		{
-			const auto thread = *it;
-
-			if (to_rotate)
-			{
-				if (thread->prio > prio)
-				{
-					break;
-				}
-	
-				to_rotate++;
-			}
-			else if (thread == cpu)
-			{
-				current = it;
-				prio = thread->prio;
-				to_rotate++;
-			}
-		}
-
-		if (to_rotate <= 1)
-		{
-			// Either the thread is not found or no work should be done
-			return;
-		}
-
-		// Put the current thread at the back of the range
-		std::rotate(current, current + 1, current + to_rotate);
-
-		if (cpu == get_current_cpu_thread())
-		{
-			static_cast<ppu_thread*>(cpu)->start_time = get_guest_system_time();
-		}
-	}
-	else if (cpu)
+	if (cpu)
 	{
 		// Emplace current thread
 		emplace_thread(cpu);

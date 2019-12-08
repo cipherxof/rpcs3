@@ -241,6 +241,7 @@ struct lv2_spu_group
 	const u32 max_num;
 	const s32 type; // SPU Thread Group Type
 	const u32 ct; // Memory Container Id
+	u32 max_run;
 
 	shared_mutex mutex;
 
@@ -254,11 +255,10 @@ struct lv2_spu_group
 	atomic_t<u64> stop_count;
 	class ppu_thread* waiter = nullptr;
 
-	std::array<atomic_t<named_thread<spu_thread>*>, 6> threads{}; // SPU Threads
-	std::array<u32, 6> threads_ids; // SPU Threads' IDM ids
+	std::array<std::shared_ptr<named_thread<spu_thread>>, 8> threads; // SPU Threads
 	std::array<s8, 256> threads_map; // SPU Threads map based number
-	std::array<std::pair<sys_spu_image, std::vector<sys_spu_segment>>, 256> imgs; // SPU Images
-	std::array<std::array<u64, 4>, 256> args; // SPU Thread Arguments
+	std::array<std::pair<sys_spu_image, std::vector<sys_spu_segment>>, 8> imgs; // SPU Images
+	std::array<std::array<u64, 4>, 8> args; // SPU Thread Arguments
 
 	std::weak_ptr<lv2_event_queue> ep_run; // port for SYS_SPU_THREAD_GROUP_EVENT_RUN events
 	std::weak_ptr<lv2_event_queue> ep_exception; // TODO: SYS_SPU_THREAD_GROUP_EVENT_EXCEPTION
@@ -268,6 +268,7 @@ struct lv2_spu_group
 		: id(idm::last_id())
 		, name(name)
 		, max_num(num)
+		, max_run(num)
 		, init(0)
 		, prio(prio)
 		, type(type)
@@ -280,8 +281,6 @@ struct lv2_spu_group
 	{
 		threads_map.fill(-1);
 	}
-
-	~lv2_spu_group();
 
 	void send_run_event(u64 data1, u64 data2, u64 data3)
 	{
@@ -307,7 +306,7 @@ struct lv2_spu_group
 		}
 	}
 
-	static std::pair<named_thread<spu_thread>*, std::shared_ptr<lv2_spu_group>> get_spu_thread(u32 id);
+	static std::pair<named_thread<spu_thread>*, std::shared_ptr<lv2_spu_group>> get_thread(u32 id);
 };
 
 class ppu_thread;
