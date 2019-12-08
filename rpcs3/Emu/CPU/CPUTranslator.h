@@ -5,6 +5,11 @@
 #include "restore_new.h"
 #ifdef _MSC_VER
 #pragma warning(push, 0)
+#else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wall"
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wold-style-cast"
 #endif
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/IRBuilder.h"
@@ -13,6 +18,8 @@
 #include "llvm/Analysis/ConstantFolding.h"
 #ifdef _MSC_VER
 #pragma warning(pop)
+#else
+#pragma GCC diagnostic pop
 #endif
 #include "define_new_memleakdetect.h"
 
@@ -2762,7 +2769,7 @@ public:
 
 			if (cv || llvm::isa<llvm::ConstantAggregateZero>(c))
 			{
-				result.value = llvm::ConstantDataVector::get(m_context, llvm::makeArrayRef((const u8*)mask._bytes, 16));
+				result.value = llvm::ConstantDataVector::get(m_context, llvm::makeArrayRef(reinterpret_cast<const u8*>(&mask), 16));
 				result.value = m_ir->CreateZExt(result.value, get_type<u32[16]>());
 				result.value = m_ir->CreateShuffleVector(data0, zeros, result.value);
 				return result;

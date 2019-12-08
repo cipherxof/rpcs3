@@ -159,7 +159,7 @@ s32 sysutil_check_name_string(const char* src, s32 minlen, s32 maxlen)
 		return -1;
 	}
 
-	for (u32 index = 0;; cur = src[++index])
+	for (s32 index = 0;; cur = src[++index])
 	{
 		if (cur == '\0' || index == maxlen)
 		{
@@ -292,9 +292,9 @@ error_code cellSysutilGetSystemParamString(CellSysutilParamId id, vm::ptr<char> 
 		return CELL_SYSUTIL_ERROR_VALUE;
 	}
 
-	u32 copy_size{};
+	u32 copy_size;
 	std::string param_str = "Unknown";
-	bool is_known = true;
+	bool report_use = false;
 
 	switch (id)
 	{
@@ -306,7 +306,7 @@ error_code cellSysutilGetSystemParamString(CellSysutilParamId id, vm::ptr<char> 
 
 	case CELL_SYSUTIL_SYSTEMPARAM_ID_CURRENT_USERNAME:
 	{
-		fs::file username(vfs::get(fmt::format("/dev_hdd0/home/%08u/localusername", Emu.GetUsrId())));
+		const fs::file username(vfs::get(fmt::format("/dev_hdd0/home/%08u/localusername", Emu.GetUsrId())));
 	
 		if (!username)
 		{
@@ -314,6 +314,7 @@ error_code cellSysutilGetSystemParamString(CellSysutilParamId id, vm::ptr<char> 
 		}
 		else
 		{
+			// Read current username
 			param_str = username.to_string();
 		}
 
@@ -322,9 +323,9 @@ error_code cellSysutilGetSystemParamString(CellSysutilParamId id, vm::ptr<char> 
 	}
 
 	case CELL_SYSUTIL_SYSTEMPARAM_ID_x1011: // Same as x1012
-	case CELL_SYSUTIL_SYSTEMPARAM_ID_x1012: copy_size = 0x400; is_known = false; break;
-	case CELL_SYSUTIL_SYSTEMPARAM_ID_x1024:	copy_size = 0x100; is_known = false; break;
-	case CELL_SYSUTIL_SYSTEMPARAM_ID_x1008: copy_size = 0x4; is_known = false; break;
+	case CELL_SYSUTIL_SYSTEMPARAM_ID_x1012: copy_size = 0x400; report_use = true; break;
+	case CELL_SYSUTIL_SYSTEMPARAM_ID_x1024:	copy_size = 0x100; report_use = true; break;
+	case CELL_SYSUTIL_SYSTEMPARAM_ID_x1008: copy_size = 0x4; report_use = true; break;
 	default:
 	{
 		return CELL_SYSUTIL_ERROR_VALUE;
@@ -336,13 +337,13 @@ error_code cellSysutilGetSystemParamString(CellSysutilParamId id, vm::ptr<char> 
 		return CELL_SYSUTIL_ERROR_SIZE;
 	}
 
-	if (!is_known)
+	if (report_use)
 	{
 		cellSysutil.error("cellSysutilGetSystemParamString: Unknown ParamId 0x%x", id);
 	}
 
-	std::memset(buf.get_ptr(), 0, copy_size);
-	std::memcpy(buf.get_ptr(), param_str.c_str(), std::min(::size32(param_str), copy_size - 1));
+	std::strncpy(buf.get_ptr(), param_str.c_str(), copy_size - 1);
+	buf[copy_size - 1] = '\0';
 	return CELL_OK;
 }
 

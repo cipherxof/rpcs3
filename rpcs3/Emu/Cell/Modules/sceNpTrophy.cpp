@@ -362,7 +362,7 @@ error_code sceNpTrophyRegisterContext(ppu_thread& ppu, u32 context, u32 handle, 
 	}
 	else if (!trp.ContainsEntry("TROPCONF.SFM"))
 	{
-		sceNpTrophy.error("sceNpTrophyRegisterContext(): Invalid/Incomplete trophy config"); 
+		sceNpTrophy.error("sceNpTrophyRegisterContext(): Invalid/Incomplete trophy config");
 		return SCE_NP_TROPHY_ERROR_ILLEGAL_UPDATE;
 	}
 
@@ -379,7 +379,7 @@ error_code sceNpTrophyRegisterContext(ppu_thread& ppu, u32 context, u32 handle, 
 	std::string trophyPath = "/dev_hdd0/home/" + Emu.GetUsr() + "/trophy/" + ctxt->trp_name;
 	if (!trp.Install(trophyPath))
 	{
-		sceNpTrophy.error("sceNpTrophyRegisterContext(): Failed to install trophy context '%s' (%s)", trophyPath, fs::g_tls_error); 
+		sceNpTrophy.error("sceNpTrophyRegisterContext(): Failed to install trophy context '%s' (%s)", trophyPath, fs::g_tls_error);
 		return SCE_NP_TROPHY_ERROR_ILLEGAL_UPDATE;
 	}
 
@@ -431,22 +431,26 @@ error_code sceNpTrophyRegisterContext(ppu_thread& ppu, u32 context, u32 handle, 
 				const auto queued = wkptr.lock();
 				if (queued && (*queued)-- == 1)
 				{
-					queued->notify_all();
+					queued->notify_one();
 				}
 
 				return 0;
 			});
 		}
 
-		// If too much time passes just send the rest of the events anyway
-		if (const u32 val = *queued)
-		{
-			queued->wait(val, atomic_wait_timeout{300000});
-		}
+		u64 current = get_system_time();
+		const u64 until = current + 300'000;
 
-		if (ppu.is_stopped())
+		// If too much time passes just send the rest of the events anyway
+		for (u32 old_value; current < until && (old_value = *queued);
+			current = get_system_time())
 		{
-			return 0;
+			queued->wait(old_value, atomic_wait_timeout{std::min<u64>((until - current) * 1000, 300'000'000)});
+
+			if (ppu.is_stopped())
+			{
+				return 0;
+			}
 		}
 	}
 
@@ -669,7 +673,7 @@ error_code sceNpTrophyUnlockTrophy(u32 context, u32 handle, s32 trophyId, vm::pt
 		return SCE_NP_TROPHY_ERROR_UNKNOWN_HANDLE;
 	}
 
-	if (trophyId < 0 || trophyId >= (s32)ctxt->tropusr->GetTrophiesCount())
+	if (trophyId < 0 || trophyId >= static_cast<s32>(ctxt->tropusr->GetTrophiesCount()))
 		return SCE_NP_TROPHY_ERROR_INVALID_TROPHY_ID;
 	if (ctxt->tropusr->GetTrophyUnlockState(trophyId))
 		return SCE_NP_TROPHY_ERROR_ALREADY_UNLOCKED;
@@ -927,7 +931,7 @@ error_code sceNpTrophyGetGameProgress(u32 context, u32 handle, vm::ptr<s32> perc
 		}
 	}
 
-	*percentage = (s32)(accuratePercentage / ctxt->tropusr->GetTrophiesCount());
+	*percentage = static_cast<s32>(accuratePercentage / ctxt->tropusr->GetTrophiesCount());
 
 	return CELL_OK;
 }
@@ -1013,7 +1017,7 @@ error_code sceNpTrophyGetTrophyIcon(u32 context, u32 handle, s32 trophyId, vm::p
 		return SCE_NP_TROPHY_ERROR_INVALID_ARGUMENT;
 	}
 
-	if (ctxt->tropusr->GetTrophiesCount() <= (u32)trophyId)
+	if (ctxt->tropusr->GetTrophiesCount() <= static_cast<u32>(trophyId))
 	{
 		return SCE_NP_TROPHY_ERROR_INVALID_TROPHY_ID;
 	}

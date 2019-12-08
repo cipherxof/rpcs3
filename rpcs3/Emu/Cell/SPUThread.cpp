@@ -115,7 +115,7 @@ namespace spu
 
 		void acquire_pc_address(spu_thread& spu, u32 pc, u32 timeout_ms = 3)
 		{
-			const u8 max_concurrent_instructions = (u8)g_cfg.core.preferred_spu_threads;
+			const u32 max_concurrent_instructions = g_cfg.core.preferred_spu_threads;
 			const u32 pc_offset = pc >> 2;
 
 			if (atomic_instruction_table[pc_offset].load(std::memory_order_consume) >= max_concurrent_instructions)
@@ -175,7 +175,7 @@ namespace spu
 			{
 				if (g_cfg.core.preferred_spu_threads > 0)
 				{
-					acquire_pc_address(spu, pc, (u32)g_cfg.core.spu_delay_penalty);
+					acquire_pc_address(spu, pc, g_cfg.core.spu_delay_penalty);
 					active = true;
 				}
 			}
@@ -991,7 +991,7 @@ spu_imm_table_t::spu_imm_table_t()
 
 std::string spu_thread::get_name() const
 {
-	return fmt::format("%sSPU[0x%x] Thread (%s)", offset >= RAW_SPU_BASE_ADDR ? "Raw" : "", id, spu_name.get());
+	return fmt::format("%sSPU[0x%07x] Thread (%s)", offset >= RAW_SPU_BASE_ADDR ? "Raw" : "", lv2_id, spu_name.get());
 }
 
 std::string spu_thread::dump() const
@@ -1202,12 +1202,13 @@ spu_thread::~spu_thread()
 	}
 }
 
-spu_thread::spu_thread(vm::addr_t ls, lv2_spu_group* group, u32 index, std::string_view name)
+spu_thread::spu_thread(vm::addr_t ls, lv2_spu_group* group, u32 index, std::string_view name, u32 lv2_id)
 	: cpu_thread(idm::last_id())
 	, spu_name(name)
 	, index(index)
 	, offset(ls)
 	, group(group)
+	, lv2_id(lv2_id)
 {
 	if (g_cfg.core.spu_decoder == spu_decoder_type::asmjit)
 	{
@@ -1297,7 +1298,7 @@ void spu_thread::do_dma_transfer(const spu_mfc_cmd& args)
 		}
 		else if (group && group->threads_map[index] != -1)
 		{
-			auto& spu = static_cast<spu_thread&>(*+group->threads[group->threads_map[index]]);
+			auto& spu = static_cast<spu_thread&>(*group->threads[group->threads_map[index]]);
 
 			if (offset + args.size - 1 < 0x40000) // LS access
 			{
@@ -1546,9 +1547,9 @@ bool spu_thread::do_list_transfer(spu_mfc_cmd& args)
 			const v128 data1 = v128::fromV(_mm_loadu_si128(src + 1));
 			const v128 data2 = v128::fromV(_mm_loadu_si128(src + 2));
 
-			((v128*)+bufitems)[0] = data0;
-			((v128*)+bufitems)[1] = data1;
-			((v128*)+bufitems)[2] = data2;
+			reinterpret_cast<v128*>(bufitems)[0] = data0;
+			reinterpret_cast<v128*>(bufitems)[1] = data1;
+			reinterpret_cast<v128*>(bufitems)[2] = data2;
 		}
 
 		const u32 size = items[index].ts & 0x7fff;
@@ -2360,7 +2361,7 @@ s64 spu_thread::get_ch_value(u32 ch)
 
 	case SPU_RdDec:
 	{
-		u32 out = ch_dec_value - (u32)(get_timebased_time() - ch_dec_start_timestamp);
+		u32 out = ch_dec_value - static_cast<u32>(get_timebased_time() - ch_dec_start_timestamp);
 
 		//Polling: We might as well hint to the scheduler to slot in another thread since this one is counting down
 		if (g_cfg.core.spu_loop_detection && out > spu::scheduler::native_jiffy_duration_us)
@@ -2506,7 +2507,7 @@ bool spu_thread::set_ch_value(u32 ch, u32 value)
 
 				ch_in_mbox.set_values(1, CELL_OK);
 
-				if (!queue->send(SYS_SPU_THREAD_EVENT_USER_KEY, id, ((u64)spup << 32) | (value & 0x00ffffff), data))
+				if (!queue->send(SYS_SPU_THREAD_EVENT_USER_KEY, lv2_id, (u64{spup} << 32) | (value & 0x00ffffff), data))
 				{
 					ch_in_mbox.set_values(1, CELL_EBUSY);
 				}
@@ -2536,7 +2537,7 @@ bool spu_thread::set_ch_value(u32 ch, u32 value)
 				}
 
 				// TODO: check passing spup value
-				if (!queue->send(SYS_SPU_THREAD_EVENT_USER_KEY, id, ((u64)spup << 32) | (value & 0x00ffffff), data))
+				if (!queue->send(SYS_SPU_THREAD_EVENT_USER_KEY, lv2_id, (u64{spup} << 32) | (value & 0x00ffffff), data))
 				{
 					LOG_WARNING(SPU, "sys_spu_thread_throw_event(spup=%d, data0=0x%x, data1=0x%x) failed (queue is full)", spup, (value & 0x00ffffff), data);
 				}

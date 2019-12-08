@@ -389,7 +389,7 @@ QString game_list_frame::GetPlayTimeBySerial(const QString& serial)
 	{
 		if (minutes_played <= 0)
 		{
-			if (seconds_played == 1) 
+			if (seconds_played == 1)
 			{
 				return tr("%0 second").arg(seconds_played);
 			}
@@ -398,7 +398,7 @@ QString game_list_frame::GetPlayTimeBySerial(const QString& serial)
 
 		if (seconds_played <= 0)
 		{
-			if (minutes_played == 1) 
+			if (minutes_played == 1)
 			{
 				return tr("%0 minute").arg(minutes_played);
 			}
@@ -408,11 +408,11 @@ QString game_list_frame::GetPlayTimeBySerial(const QString& serial)
 		{
 			return tr("%0 minute and %1 second").arg(minutes_played).arg(seconds_played);
 		}
-		if (minutes_played == 1) 
+		if (minutes_played == 1)
 		{
 			return tr("%0 minute and %1 seconds").arg(minutes_played).arg(seconds_played);
 		}
-		if (seconds_played == 1) 
+		if (seconds_played == 1)
 		{
 			return tr("%0 minutes and %1 second").arg(minutes_played).arg(seconds_played);
 		}
@@ -421,7 +421,7 @@ QString game_list_frame::GetPlayTimeBySerial(const QString& serial)
 
 	if (minutes_played <= 0)
 	{
-		if (hours_played == 1) 
+		if (hours_played == 1)
 		{
 			return tr("%0 hour").arg(hours_played);
 		}
@@ -431,11 +431,11 @@ QString game_list_frame::GetPlayTimeBySerial(const QString& serial)
 	{
 		return tr("%0 hour and %1 minute").arg(hours_played).arg(minutes_played);
 	}
-	if (hours_played == 1) 
+	if (hours_played == 1)
 	{
 		return tr("%0 hour and %1 minutes").arg(hours_played).arg(minutes_played);
 	}
-	if (minutes_played == 1) 
+	if (minutes_played == 1)
 	{
 		return tr("%0 hours and %1 minute").arg(hours_played).arg(minutes_played);
 	}
@@ -967,10 +967,14 @@ void game_list_frame::ShowContextMenu(const QPoint &pos)
 	connect(configure, &QAction::triggered, [=]
 	{
 		settings_dialog dlg(m_gui_settings, m_emu_settings, 0, this, &currGame);
-		if (dlg.exec() == QDialog::Accepted && !gameinfo->hasCustomConfig)
+		if (dlg.exec() == QDialog::Accepted)
 		{
-			gameinfo->hasCustomConfig = true;
-			ShowCustomConfigIcon(item);
+			if (!gameinfo->hasCustomConfig)
+			{
+				gameinfo->hasCustomConfig = true;
+				ShowCustomConfigIcon(item);
+			}
+			Q_EMIT NotifyEmuSettingsChange();
 		}
 	});
 	connect(pad_configure, &QAction::triggered, [=]
@@ -1856,7 +1860,7 @@ int game_list_frame::PopulateGameList()
 	std::string selected_item = CurrentSelectionIconPath();
 
 	m_gameList->clearContents();
-	m_gameList->setRowCount((int)m_game_data.size());
+	m_gameList->setRowCount(m_game_data.size());
 
 	int row = 0, index = -1;
 	for (const auto& game : m_game_data)
