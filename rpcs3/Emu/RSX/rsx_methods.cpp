@@ -464,9 +464,19 @@ namespace rsx
 
 		void set_begin_end(thread* rsxthr, u32 _reg, u32 arg)
 		{
-			if (arg)
+			// Ignore upper bits
+			if (const u8 prim = static_cast<u8>(arg))
 			{
-				rsx::method_registers.current_draw_clause.reset(to_primitive_type(arg));
+				rsx::method_registers.current_draw_clause.reset(to_primitive_type(prim));
+
+				if (rsx::method_registers.current_draw_clause.primitive == rsx::primitive_type::invalid)
+				{
+					rsxthr->in_begin_end = true;
+
+					LOG_WARNING(RSX, "Invalid NV4097_SET_BEGIN_END value: 0x%x", arg);
+					return;
+				}
+
 				rsxthr->begin();
 				return;
 			}
@@ -496,6 +506,25 @@ namespace rsx
 
 			if (!rsx::method_registers.current_draw_clause.empty())
 			{
+				if (rsx::method_registers.current_draw_clause.primitive == rsx::primitive_type::invalid)
+				{
+					// Recover from invalid primitive only if draw clause is not empty
+					rsxthr->invalid_command_interrupt_raised = true;
+
+					rsx::method_registers.current_draw_clause.begin();
+					do
+					{
+						rsx::method_registers.current_draw_clause.execute_pipeline_dependencies();
+					}
+					while (rsx::method_registers.current_draw_clause.next());
+
+					rsx::method_registers.current_draw_clause.end();
+					rsxthr->in_begin_end = false;
+
+					LOG_ERROR(RSX, "NV4097_SET_BEGIN_END aborted due to invalid primitive!");
+					return;
+				}
+
 				rsx::method_registers.current_draw_clause.compile();
 				rsxthr->end();
 			}
