@@ -218,30 +218,6 @@ public:
 	{
 	}
 
-	constexpr b8& operator|=(const bool& rhs)
-	{
-		m_value |= +rhs;
-		return *this;
-	}
-
-	constexpr b8& operator&=(const bool& rhs)
-	{
-		m_value &= +rhs;
-		return *this;
-	}
-
-	constexpr b8& operator^=(const bool& rhs)
-	{
-		m_value ^= +rhs;
-		return *this;
-	}
-
-	constexpr b8& operator=(const bool& rhs)
-	{
-		m_value = +rhs;
-		return *this;
-	}
-
 	constexpr operator bool() const
 	{
 		return m_value != 0;
@@ -938,16 +914,4 @@ inline constexpr uintmax_t ceil2(T value)
 			return i + std::min<uintmax_t>(ispow2, 1);
 		}
 	}
-}
-
-template <typename T>
-volatile T& as_volatile(T& t)
-{
-	return const_cast<volatile T&>(t);
-}
-
-template <typename T>
-const volatile T& as_volatile(const T& t)
-{
-	return const_cast<const volatile T&>(t);
 }

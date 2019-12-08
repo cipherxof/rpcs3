@@ -1643,7 +1643,7 @@ void spu_thread::do_putlluc(const spu_mfc_cmd& args)
 		auto& data = vm::_ref<decltype(rdata)>(addr);
 		auto& res = vm::reservation_lock(addr, 128);
 
-		atomic_storage<uchar>::fetch_or((uchar&)data, 0);
+		*reinterpret_cast<atomic_t<u32>*>(&data) += 0;
 
 		if (g_cfg.core.spu_accurate_putlluc)
 		{
@@ -1858,7 +1858,7 @@ bool spu_thread::process_mfc_cmd()
 
 			if (g_cfg.core.spu_accurate_getllar)
 			{
-				+(volatile char&)data;
+				*reinterpret_cast<atomic_t<u32>*>(&data) += 0;
 
 				// Full lock (heavyweight)
 				// TODO: vm::check_addr
@@ -1947,7 +1947,7 @@ bool spu_thread::process_mfc_cmd()
 			{
 				if (cmp_rdata(rdata, to_write))
 				{
-					// Pseudo write back: Check memory change without lock
+					// Writeback of unchanged data. Only check memory change
 					result = cmp_rdata(rdata, data) && vm::reservation_acquire(raddr, 128).compare_and_swap_test(rtime, rtime + 128);
 				}
 				else
@@ -1957,7 +1957,7 @@ bool spu_thread::process_mfc_cmd()
 
 					if (rtime == old_time)
 					{
-						atomic_storage<uchar>::fetch_or((uchar&)data, 0);
+						*reinterpret_cast<atomic_t<u32>*>(&data) += 0;
 
 						// Full lock (heavyweight)
 						// TODO: vm::check_addr
@@ -2920,7 +2920,7 @@ bool spu_thread::stop_and_signal(u32 code)
 				queue->sq.emplace_back(this);
 				group->run_state = SPU_THREAD_GROUP_STATUS_WAITING;
 
-				for (named_thread<spu_thread>* thread : group->threads)
+				for (auto& thread : group->threads)
 				{
 					if (thread)
 					{
@@ -2973,13 +2973,13 @@ bool spu_thread::stop_and_signal(u32 code)
 			group->run_state = SPU_THREAD_GROUP_STATUS_SUSPENDED;
 		}
 
-		for (named_thread<spu_thread>* thread : group->threads)
+		for (auto& thread : group->threads)
 		{
 			if (thread)
 			{
 				thread->state -= cpu_flag::suspend;
 
-				if (thread != this)
+				if (thread.get() != this)
 				{
 					thread_ctrl::notify(*thread);
 				}
@@ -3074,9 +3074,9 @@ bool spu_thread::stop_and_signal(u32 code)
 
 		std::lock_guard lock(group->mutex);
 
-		for (named_thread<spu_thread>* thread : group->threads)
+		for (auto& thread : group->threads)
 		{
-			if (thread && thread != this)
+			if (thread && thread.get() != this)
 			{
 				thread->state += cpu_flag::stop;
 				thread_ctrl::notify(*thread);

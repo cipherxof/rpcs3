@@ -15,13 +15,11 @@ error_code sys_gpio_get(u64 device_id, vm::ptr<u64> value)
 		return CELL_ESRCH;
 	}
 
-	if (!value.valid())
+	// Retail consoles dont have LEDs or DIPs switches, hence always sets 0 in paramenter
+	if (!value.try_write(0))
 	{
 		return CELL_EFAULT;
 	}
-
-	// Retail consoles dont have LEDs or DIPs switches, hence always sets 0 in paramenter
-	*value = 0;
 
 	return CELL_OK;
 }

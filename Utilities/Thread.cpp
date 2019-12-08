@@ -7,7 +7,6 @@
 #include "Emu/Cell/RawSPUThread.h"
 #include "Emu/Cell/lv2/sys_mmapper.h"
 #include "Emu/Cell/lv2/sys_event.h"
-#include "Emu/Cell/lv2/sys_spu.h"
 #include "Thread.h"
 #include "sysinfo.h"
 #include <typeinfo>

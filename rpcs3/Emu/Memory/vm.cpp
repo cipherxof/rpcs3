@@ -1176,7 +1176,7 @@ void fmt_class_string<vm::_ptr_base<const char, u32>>::format(std::string& out, 
 
 	for (vm::_ptr_base<const volatile char, u32> ptr = vm::cast(arg);; ptr++)
 	{
-		if (!ptr.valid())
+		if (!vm::check_addr(ptr.addr()))
 		{
 			// TODO: optimize checks
 			out.resize(start);
