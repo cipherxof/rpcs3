@@ -533,6 +533,11 @@ namespace vk
 		return g_drv_disable_fence_reset;
 	}
 
+	bool emulate_conditional_rendering()
+	{
+		return (g_cfg.video.relaxed_zcull_sync && !g_current_renderer->get_conditional_render_support());
+	}
+
 	void insert_buffer_memory_barrier(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize length, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkAccessFlags src_mask, VkAccessFlags dst_mask)
 	{
 		VkBufferMemoryBarrier barrier = {};
