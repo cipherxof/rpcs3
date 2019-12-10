@@ -70,7 +70,7 @@ namespace rsx
 
 		void semaphore_acquire(thread* rsx, u32 /*_reg*/, u32 arg)
 		{
-			rsx->sync_point_request = true;
+			if (!rsx->in_begin_end) rsx->sync_point_request = true;
 			const u32 addr = get_address(method_registers.semaphore_offset_406e(), method_registers.semaphore_context_dma_406e());
 
 			const auto& sema = vm::_ref<atomic_be_t<u32>>(addr);
@@ -125,8 +125,8 @@ namespace rsx
 
 			// By avoiding doing this on flip's semaphore release
 			// We allow last gcm's registers reset to occur in case of a crash
-			const bool is_flip_sema = (offset == 0x10 && ctxt == CELL_GCM_CONTEXT_DMA_SEMAPHORE_R);
-			if (!is_flip_sema)
+			if (const bool is_flip_sema = (offset == 0x10 && ctxt == CELL_GCM_CONTEXT_DMA_SEMAPHORE_R);
+				!is_flip_sema && !rsx->in_begin_end)
 			{
 				rsx->sync_point_request = true;
 			}
@@ -510,16 +510,6 @@ namespace rsx
 				{
 					// Recover from invalid primitive only if draw clause is not empty
 					rsxthr->invalid_command_interrupt_raised = true;
-
-					rsx::method_registers.current_draw_clause.begin();
-					do
-					{
-						rsx::method_registers.current_draw_clause.execute_pipeline_dependencies();
-					}
-					while (rsx::method_registers.current_draw_clause.next());
-
-					rsx::method_registers.current_draw_clause.end();
-					rsxthr->in_begin_end = false;
 
 					LOG_ERROR(RSX, "NV4097_SET_BEGIN_END aborted due to invalid primitive!");
 					return;

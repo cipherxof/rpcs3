@@ -133,6 +133,7 @@ enum class move_handler
 {
 	null,
 	fake,
+	mouse,
 };
 
 enum class microphone_handler
