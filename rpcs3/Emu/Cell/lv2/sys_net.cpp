@@ -79,6 +79,50 @@ void fmt_class_string<sys_net_error>::format(std::string& out, u64 arg)
 	});
 }
 
+#ifdef _WIN32
+// Workaround function for WSAPoll not reporting failed connections
+void WSAPollEx(LPWSAPOLLFD fdArray, ULONG fds, INT timeout)
+{
+	bool connecting[lv2_socket::id_count]{};
+	for (ULONG i = 0; i < fds; i++)
+	{
+		if (auto sock = idm::check_unlocked<lv2_socket>(fdArray[i].fd))
+		{
+			connecting[i] = sock->is_connecting;
+		}
+	}
+
+	const auto finished_connecting = [](SOCKET fd)
+	{
+		if (auto sock = idm::check_unlocked<lv2_socket>(fd))
+			sock->is_connecting = false;
+	};
+
+	int r = ::WSAPoll(fdArray, fds, timeout);
+	for (ULONG i = 0; i < fds; i++)
+	{
+		if (connecting[i])
+		{
+			if (!fdArray[i].revents)
+			{
+				int error = 0;
+				socklen_t intlen = sizeof(error);
+				if (getsockopt(fdArray[i].fd, SOL_SOCKET, SO_ERROR, (char*)&error, &intlen) == -1 || error != 0)
+				{
+					// Connection silently failed
+					finished_connecting(fdArray[i].fd);
+					fdArray[i].revents = POLLERR | POLLHUP | (fdArray[i].events & (POLLIN | POLLOUT));
+				}
+			}
+			else
+			{
+				finished_connecting(fdArray[i].fd);
+			}
+		}
+	}
+}
+#endif
+
 // Error helper functions
 static sys_net_error get_last_error(bool is_blocking, int native_error = 0)
 {
@@ -191,7 +235,10 @@ struct network_thread
 		{
 			// Wait with 1ms timeout
 #ifdef _WIN32
-			::WSAPoll(fds, socklist.size(), 1);
+			{
+				reader_lock lock(id_manager::g_mutex);
+				WSAPollEx(fds, socklist.size(), 1);
+			}
 #else
 			::poll(fds, socklist.size(), 1);
 #endif
@@ -522,6 +569,9 @@ error_code sys_net_bnet_connect(ppu_thread& ppu, s32 s, vm::ptr<sys_net_sockaddr
 		{
 			if (result == SYS_NET_EWOULDBLOCK)
 			{
+#ifdef _WIN32
+				sock.is_connecting = true;
+#endif
 				result = SYS_NET_EINPROGRESS;
 			}
 
@@ -1606,7 +1656,7 @@ error_code sys_net_bnet_poll(ppu_thread& ppu, vm::ptr<sys_net_pollfd> fds, s32 n
 		}
 
 #ifdef _WIN32
-		::WSAPoll(_fds, nfds, 0);
+		WSAPollEx(_fds, nfds, 0);
 #else
 		::poll(_fds, nfds, 0);
 #endif
@@ -1774,7 +1824,7 @@ error_code sys_net_bnet_select(ppu_thread& ppu, s32 nfds, vm::ptr<sys_net_fd_set
 		}
 
 #ifdef _WIN32
-		::WSAPoll(_fds, nfds, 0);
+		WSAPollEx(_fds, nfds, 0);
 #else
 		::poll(_fds, nfds, 0);
 #endif
