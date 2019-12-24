@@ -318,7 +318,7 @@ namespace
 		push_constants[0].size = 16;
 		push_constants[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-		if (!vk::get_current_renderer()->get_conditional_render_support())
+		if (vk::emulate_conditional_rendering())
 		{
 			// Conditional render toggle
 			push_constants[0].size = 20;
@@ -457,10 +457,8 @@ VKGSRender::VKGSRender() : GSRender()
 	sizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER , 3 * DESCRIPTOR_MAX_DRAW_CALLS });
 	sizes.push_back({ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER , 20 * DESCRIPTOR_MAX_DRAW_CALLS });
 
-	if (!m_device->get_conditional_render_support())
-	{
-		sizes.push_back({ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 * DESCRIPTOR_MAX_DRAW_CALLS });
-	}
+	// Conditional rendering predicate slot; refactor to allow skipping this when not needed
+	sizes.push_back({ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 * DESCRIPTOR_MAX_DRAW_CALLS });
 
 	VkSemaphoreCreateInfo semaphore_info = {};
 	semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -2813,7 +2811,7 @@ void VKGSRender::load_program_env()
 		m_program->bind_uniform(m_fragment_texture_params_buffer_info, FRAGMENT_TEXTURE_PARAMS_BIND_SLOT, m_current_frame->descriptor_set);
 	}
 
-	if (!m_device->get_conditional_render_support())
+	if (vk::emulate_conditional_rendering())
 	{
 		auto predicate = m_cond_render_buffer ? m_cond_render_buffer->value : vk::get_scratch_buffer()->value;
 		m_program->bind_buffer({ predicate, 0, 4 }, CONDITIONAL_RENDER_PREDICATE_SLOT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_current_frame->descriptor_set);
@@ -2851,7 +2849,7 @@ void VKGSRender::update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_
 	draw_info[2] = id;
 	draw_info[3] = (id * 16) + (base_offset / 8);
 
-	if (!m_device->get_conditional_render_support())
+	if (vk::emulate_conditional_rendering())
 	{
 		draw_info[4] = cond_render_ctrl.hw_cond_active ? 1 : 0;
 		data_size = 20;
