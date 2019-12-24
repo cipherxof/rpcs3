@@ -779,7 +779,7 @@ namespace vk
 			set_parameters(cmd);
 
 			const u32 num_bytes_per_invocation = (sizeof(_BlockType) * optimal_group_size);
-			const u32 linear_invocations = rsx::aligned_div(data_length, num_bytes_per_invocation);
+			const u32 linear_invocations = aligned_div(data_length, num_bytes_per_invocation);
 			compute_task::run(cmd, linear_invocations);
 		}
 	};
@@ -833,7 +833,7 @@ namespace vk
 			word_count = num_words;
 			block_length = num_words * 4;
 
-			const u32 linear_invocations = rsx::aligned_div(word_count, optimal_group_size);
+			const u32 linear_invocations = aligned_div(word_count, optimal_group_size);
 			compute_task::run(cmd, linear_invocations);
 		}
 	};

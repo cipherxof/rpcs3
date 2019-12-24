@@ -440,10 +440,29 @@ union alignas(2) f16
 
 CHECK_SIZE_ALIGN(f16, 2, 2);
 
-template <typename T, typename = std::enable_if_t<std::is_integral<T>::value>>
-constexpr T align(const T& value, ullong align)
+template <typename T, typename = std::enable_if_t<std::is_integral<T>::value && std::is_unsigned<T>::value>>
+constexpr T align(T value, ullong align)
 {
-	return static_cast<T>((value + (align - 1)) & ~(align - 1));
+	return static_cast<T>((value + (align - 1)) & (0 - align));
+}
+
+// General purpose aligned division, the result is rounded up not truncated
+template <typename T, typename = std::enable_if_t<std::is_integral<T>::value && std::is_unsigned<T>::value>>
+constexpr T aligned_div(T value, ullong align)
+{
+	return static_cast<T>((value + align - 1) / align);
+}
+
+// General purpose aligned division, the result is rounded to nearest
+template <typename T, typename = std::enable_if_t<std::is_integral<T>::value>>
+constexpr T rounded_div(T value, std::conditional_t<std::is_signed<T>::value, llong, ullong> align)
+{
+	if constexpr (std::is_unsigned<T>::value)
+	{
+		return static_cast<T>((value + (align / 2)) / align);
+	}
+
+	return static_cast<T>((value + (value < 0 ? 0 - align : align) / 2) / align);
 }
 
 template <typename T, typename T2>
@@ -510,7 +529,7 @@ struct offset32_detail<T3 T4::*>
 };
 
 // Helper function, used by ""_u16, ""_u32, ""_u64
-constexpr u8 to_u8(char c)
+constexpr u32 to_u8(char c)
 {
 	return static_cast<u8>(c);
 }
@@ -520,7 +539,7 @@ constexpr u16 operator""_u16(const char* s, std::size_t length)
 {
 	return
 #if IS_LE_MACHINE == 1
-		to_u8(s[1]) << 8 | to_u8(s[0]);
+		static_cast<u16>(to_u8(s[1]) << 8 | to_u8(s[0]));
 #endif
 }
 

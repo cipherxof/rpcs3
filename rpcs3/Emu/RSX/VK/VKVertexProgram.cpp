@@ -309,7 +309,7 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream & OS)
 
 void VKVertexDecompilerThread::Task()
 {
-	m_device_props.emulate_conditional_rendering = !vk::get_current_renderer()->get_conditional_render_support();
+	m_device_props.emulate_conditional_rendering = vk::emulate_conditional_rendering();
 
 	m_shader = Decompile();
 	vk_prog->SetInputs(inputs);

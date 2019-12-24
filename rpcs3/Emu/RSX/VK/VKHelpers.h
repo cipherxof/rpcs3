@@ -11,7 +11,7 @@
 #include <stack>
 #include <deque>
 
-#if !defined(_WIN32) && !defined(__APPLE__)
+#ifdef HAVE_X11
 #include <X11/Xutil.h>
 #endif
 
@@ -140,6 +140,7 @@ namespace vk
 	bool emulate_primitive_restart(rsx::primitive_type type);
 	bool sanitize_fp_values();
 	bool fence_reset_disabled();
+	bool emulate_conditional_rendering();
 	VkFlags get_heap_compatible_buffer_types();
 	driver_vendor get_driver_vendor();
 	chip_class get_chip_family(uint32_t vendor_id, uint32_t device_id);
@@ -2122,7 +2123,7 @@ public:
 		{
 			fmt::throw_exception("Native macOS swapchain is not implemented yet!");
 		}
-#else
+#elif defined(HAVE_X11)
 
 	class swapchain_X11 : public native_swapchain_base
 	{
@@ -2228,6 +2229,37 @@ public:
 			//Release reference
 			src.first = false;
 			return VK_SUCCESS;
+		}
+#else
+
+	class swapchain_Wayland : public native_swapchain_base
+	{
+
+	public:
+		swapchain_Wayland(physical_device &gpu, uint32_t _present_queue, uint32_t _graphics_queue, VkFormat format = VK_FORMAT_B8G8R8A8_UNORM)
+		: native_swapchain_base(gpu, _present_queue, _graphics_queue, format)
+		{}
+
+		~swapchain_Wayland(){}
+
+		bool init() override
+		{
+			fmt::throw_exception("Native Wayland swapchain is not implemented yet!");
+		}
+
+		void create(display_handle_t& window_handle) override
+		{
+			fmt::throw_exception("Native Wayland swapchain is not implemented yet!");
+		}
+
+		void destroy(bool full=true) override
+		{
+			fmt::throw_exception("Native Wayland swapchain is not implemented yet!");
+		}
+
+		VkResult present(VkSemaphore /*semaphore*/, u32 index) override
+		{
+			fmt::throw_exception("Native Wayland swapchain is not implemented yet!");
 		}
 #endif
 
@@ -2632,11 +2664,13 @@ public:
 				extensions.push_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
 #else
 				bool found_surface_ext = false;
+#ifdef HAVE_X11
 				if (support.is_supported(VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
 				{
 					extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
 					found_surface_ext = true;
 				}
+#endif
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
 				if (support.is_supported(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME))
 				{
@@ -2735,12 +2769,17 @@ public:
 
 			CHECK_RESULT(vkCreateMacOSSurfaceMVK(m_instance, &createInfo, NULL, &m_surface));
 #else
+#ifdef HAVE_X11
 			using swapchain_NATIVE = swapchain_X11;
+#else
+			using swapchain_NATIVE = swapchain_Wayland;
+#endif
 
 			std::visit([&](auto&& p)
 			{
 				using T = std::decay_t<decltype(p)>;
 
+#ifdef HAVE_X11
 				if constexpr (std::is_same_v<T, std::pair<Display*, Window>>)
 				{
 					VkXlibSurfaceCreateInfoKHR createInfo = {};
@@ -2749,8 +2788,10 @@ public:
 					createInfo.window                     = p.second;
 					CHECK_RESULT(vkCreateXlibSurfaceKHR(this->m_instance, &createInfo, nullptr, &m_surface));
 				}
+				else
+#endif
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
-				else if constexpr (std::is_same_v<T, std::pair<wl_display*, wl_surface*>>)
+				if constexpr (std::is_same_v<T, std::pair<wl_display*, wl_surface*>>)
 				{
 					VkWaylandSurfaceCreateInfoKHR createInfo = {};
 					createInfo.sType                         = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
@@ -2760,10 +2801,10 @@ public:
 					force_wm_reporting_off = true;
 				}
 				else
+#endif
 				{
 					static_assert(std::conditional_t<true, std::false_type, T>::value, "Unhandled window_handle type in std::variant");
 				}
-#endif
 			}, window_handle);
 #endif
 
