@@ -128,6 +128,7 @@ static fs::error to_error(DWORD e)
 	case ERROR_SHARING_VIOLATION: return fs::error::acces;
 	case ERROR_DIR_NOT_EMPTY: return fs::error::notempty;
 	case ERROR_NOT_READY: return fs::error::noent;
+	case ERROR_FILENAME_EXCED_RANGE: return fs::error::toolong;
 	//case ERROR_INVALID_PARAMETER: return fs::error::inval;
 	default: fmt::throw_exception("Unknown Win32 error: %u.", e);
 	}
@@ -175,6 +176,27 @@ static fs::error to_error(int e)
 }
 
 #endif
+
+static std::string path_append(std::string_view path, std::string_view more)
+{
+	std::string result;
+
+	if (const size_t src_slash_pos = path.find_last_not_of('/'); src_slash_pos != path.npos)
+	{
+		path.remove_suffix(path.length() - src_slash_pos - 1);
+		result = path;
+	}
+
+	result.push_back('/');
+
+	if (const size_t dst_slash_pos = more.find_first_not_of('/'); dst_slash_pos != more.npos)
+	{
+		more.remove_prefix(dst_slash_pos);
+		result.append(more);
+	}
+
+	return result;
+}
 
 namespace fs
 {
@@ -1585,7 +1607,7 @@ bool fs::remove_all(const std::string& path, bool remove_root)
 
 			if (entry.is_directory == false)
 			{
-				if (!remove_file(path + '/' + entry.name))
+				if (!remove_file(path_append(path, entry.name)))
 				{
 					return false;
 				}
@@ -1593,7 +1615,7 @@ bool fs::remove_all(const std::string& path, bool remove_root)
 
 			if (entry.is_directory == true)
 			{
-				if (!remove_all(path + '/' + entry.name))
+				if (!remove_all(path_append(path, entry.name)))
 				{
 					return false;
 				}
@@ -1631,7 +1653,7 @@ u64 fs::get_dir_size(const std::string& path, u64 rounding_alignment)
 
 		if (entry.is_directory == true)
 		{
-			result += get_dir_size(path + '/' + entry.name, rounding_alignment);
+			result += get_dir_size(path_append(path, entry.name), rounding_alignment);
 		}
 	}
 
@@ -1786,6 +1808,7 @@ void fmt_class_string<fs::error>::format(std::string& out, u64 arg)
 		case fs::error::notempty: return "Not empty";
 		case fs::error::readonly: return "Read only";
 		case fs::error::isdir: return "Is a directory";
+		case fs::error::toolong: return "Path too long";
 		}
 
 		return unknown;

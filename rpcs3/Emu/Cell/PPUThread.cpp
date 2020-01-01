@@ -165,6 +165,7 @@ extern void ppu_initialize();
 extern void ppu_initialize(const ppu_module& info);
 static void ppu_initialize2(class jit_compiler& jit, const ppu_module& module_part, const std::string& cache_path, const std::string& obj_name);
 extern void ppu_execute_syscall(ppu_thread& ppu, u64 code);
+static bool ppu_break(ppu_thread& ppu, ppu_opcode_t op);
 
 // Get pointer to executable cache
 template<typename T = u64>
@@ -308,11 +309,11 @@ extern void ppu_register_function_at(u32 addr, u32 size, ppu_function_t ptr)
 	}
 
 	// Initialize interpreter cache
-	const u32 fallback = ::narrow<u32>(reinterpret_cast<std::uintptr_t>(ppu_fallback));
+	const u32 _break = ::narrow<u32>(reinterpret_cast<std::uintptr_t>(ppu_break));
 
 	while (size)
 	{
-		if (ppu_ref<u32>(addr) == fallback)
+		if (ppu_ref<u32>(addr) != _break)
 		{
 			ppu_ref(addr) = ppu_cache(addr);
 		}
@@ -407,15 +408,11 @@ extern bool ppu_patch(u32 addr, u32 value)
 		return false;
 	}
 
-	const auto ptr = vm::get_super_ptr<u32>(addr);
-
-	if (!ptr)
+	if (!vm::try_access(addr, &value, sizeof(value), true))
 	{
 		LOG_FATAL(GENERAL, "Patch failed at 0x%x: invalid memory address.", addr);
 		return false;
 	}
-
-	*ptr = value;
 
 	const u32 _break = ::narrow<u32>(reinterpret_cast<std::uintptr_t>(&ppu_break));
 	const u32 fallback = ::narrow<u32>(reinterpret_cast<std::uintptr_t>(&ppu_fallback));
@@ -1617,7 +1614,7 @@ extern void ppu_initialize(const ppu_module& info)
 		}
 
 		// Check object file
-		if (fs::is_file(cache_path + obj_name))
+		if (fs::is_file(cache_path + obj_name + ".gz") || fs::is_file(cache_path + obj_name))
 		{
 			if (!jit)
 			{
@@ -1657,7 +1654,7 @@ extern void ppu_initialize(const ppu_module& info)
 				g_progr_pdone++;
 			}
 
-			if (Emu.IsStopped() || !jit || !fs::is_file(cache_path + obj_name))
+			if (Emu.IsStopped() || !jit || !fs::is_file(cache_path + obj_name + ".gz"))
 			{
 				return;
 			}
