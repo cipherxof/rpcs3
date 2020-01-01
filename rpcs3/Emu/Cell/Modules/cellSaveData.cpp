@@ -269,9 +269,6 @@ static error_code display_callback_result_error_message(ppu_thread& ppu, vm::ptr
 	case CELL_SAVEDATA_CBRESULT_ERR_BROKEN:
 		msg = "Error - Save data corrupted";
 		break;
-	case CELL_SAVEDATA_CBRESULT_ERR_NODATA:
-		msg = "Error - Save data cannot be found";
-		break;
 	case CELL_SAVEDATA_CBRESULT_ERR_INVALID:
 		if (result->invalidMsg)
 			use_invalid_message = true;
