@@ -13,6 +13,7 @@
 #include "Emu/Cell/PPUThread.h"
 #include "Emu/Cell/RawSPUThread.h"
 #include "sys_interrupt.h"
+#include "sys_process.h"
 #include "sys_mmapper.h"
 #include "sys_event.h"
 
@@ -310,7 +311,7 @@ error_code sys_spu_thread_initialize(ppu_thread& ppu, vm::ptr<u32> thread, u32 g
 
 	if (u32 option = attr->option)
 	{
-		sys_spu.todo("Unimplemented SPU Thread options (0x%x)", option);
+		sys_spu.warning("Unimplemented SPU Thread options (0x%x)", option);
 	}
 
 	const vm::addr_t ls_addr{verify("SPU LS" HERE, vm::alloc(0x80000, vm::main))};
@@ -409,14 +410,15 @@ error_code sys_spu_thread_group_create(ppu_thread& ppu, vm::ptr<u32> id, u32 num
 
 	// TODO: max num value should be affected by sys_spu_initialize() settings
 
-	if (attr->nsize > 0x80 || !num || num > 6 || ((prio < 16 || prio > 255) && (attr->type != SYS_SPU_THREAD_GROUP_TYPE_EXCLUSIVE_NON_CONTEXT && attr->type != SYS_SPU_THREAD_GROUP_TYPE_COOPERATE_WITH_SYSTEM)))
+	const s32 min_prio = g_ps3_process_info.has_root_perm() ? 0 : 16;
+	if (attr->nsize > 0x80 || !num || num > 6 || ((prio < min_prio || prio > 255) && (attr->type != SYS_SPU_THREAD_GROUP_TYPE_EXCLUSIVE_NON_CONTEXT && attr->type != SYS_SPU_THREAD_GROUP_TYPE_COOPERATE_WITH_SYSTEM)))
 	{
 		return CELL_EINVAL;
 	}
 
 	if (attr->type)
 	{
-		sys_spu.todo("Unsupported SPU Thread Group type (0x%x)", attr->type);
+		sys_spu.warning("sys_spu_thread_group_create(): SPU Thread Group type (0x%x)", attr->type);
 	}
 
 	*id = idm::make<lv2_spu_group>(std::string(attr->name.get_ptr(), std::max<u32>(attr->nsize, 1) - 1), num, prio, attr->type, attr->ct);
@@ -782,14 +784,20 @@ error_code sys_spu_thread_group_join(ppu_thread& ppu, u32 id, vm::ptr<u32> cause
 
 	if (!cause)
 	{
-		return CELL_EFAULT;
+		if (status)
+		{
+			// Report unwritten data
+			return CELL_EFAULT;
+		}
+
+		return not_an_error(CELL_EFAULT);
 	}
 
 	*cause = static_cast<u32>(ppu.gpr[4]);
 
 	if (!status)
 	{
-		return CELL_EFAULT;
+		return not_an_error(CELL_EFAULT);
 	}
 
 	*status = static_cast<s32>(ppu.gpr[5]);
@@ -802,16 +810,16 @@ error_code sys_spu_thread_group_set_priority(ppu_thread& ppu, u32 id, s32 priori
 
 	sys_spu.trace("sys_spu_thread_group_set_priority(id=0x%x, priority=%d)", id, priority);
 
-	if (priority < 16 || priority > 255)
-	{
-		return CELL_EINVAL;
-	}
-
 	const auto group = idm::get<lv2_spu_group>(id);
 
 	if (!group)
 	{
 		return CELL_ESRCH;
+	}
+
+	if (priority < (g_ps3_process_info.has_root_perm() ? 0 : 16) || priority > 255)
+	{
+		return CELL_EINVAL;
 	}
 
 	if (group->type == SYS_SPU_THREAD_GROUP_TYPE_EXCLUSIVE_NON_CONTEXT)
@@ -1471,16 +1479,16 @@ error_code sys_raw_spu_destroy(ppu_thread& ppu, u32 id)
 	// Clear interrupt handlers
 	for (auto& intr : thread->int_ctrl)
 	{
-		if (intr.tag)
+		if (const auto tag = intr.tag.lock())
 		{
-			if (auto handler = intr.tag->handler.lock())
+			if (auto handler = tag->handler.lock())
 			{
 				// SLEEP
 				handler->join();
 				to_remove.emplace(handler.get(), 0);
 			}
 
-			to_remove.emplace(intr.tag.get(), 0);
+			to_remove.emplace(tag.get(), 0);
 		}
 	}
 
@@ -1535,7 +1543,7 @@ error_code sys_raw_spu_create_interrupt_tag(ppu_thread& ppu, u32 id, u32 class_i
 
 		auto& int_ctrl = thread->int_ctrl[class_id];
 
-		if (int_ctrl.tag)
+		if (!int_ctrl.tag.expired())
 		{
 			error = CELL_EAGAIN;
 			return result;

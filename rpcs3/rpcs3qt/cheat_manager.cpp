@@ -16,6 +16,7 @@
 
 #include "Emu/IdManager.h"
 #include "Emu/Cell/PPUAnalyser.h"
+#include "Emu/Cell/PPUFunction.h"
 
 #include "Utilities/StrUtil.h"
 
@@ -127,7 +128,7 @@ cheat_engine::cheat_engine()
 	}
 	catch (YAML::Exception& e)
 	{
-		log_cheat.error("Error parsing %s", cheats_filename);
+		log_cheat.error("Error parsing %s\n%s", cheats_filename, e.what());
 	}
 }
 
@@ -223,7 +224,8 @@ bool cheat_engine::resolve_script(u32& final_offset, const u32 offset, const std
 		operand_sub
 	};
 
-	auto do_operation = [](const operand op, u32& param1, const u32 param2) -> u32 {
+	auto do_operation = [](const operand op, u32& param1, const u32 param2) -> u32
+	{
 		switch (op)
 		{
 		case operand_equal: return param1 = param2;
@@ -331,7 +333,7 @@ std::vector<u32> cheat_engine::search(const T value, const std::vector<u32>& to_
 	{
 		for (const auto& off : to_filter)
 		{
-			if (vm::check_addr(off))
+			if (vm::check_addr(off, sizeof(T)))
 			{
 				if (*vm::get_super_ptr<T>(off) == value_swapped)
 					results.push_back(off);
@@ -369,7 +371,7 @@ T cheat_engine::get_value(const u32 offset, bool& success)
 
 	cpu_thread::suspend_all cpu_lock(nullptr);
 
-	if (!vm::check_addr(offset))
+	if (!vm::check_addr(offset, sizeof(T)))
 	{
 		success = false;
 		return 0;
@@ -390,12 +392,52 @@ bool cheat_engine::set_value(const u32 offset, const T value)
 
 	cpu_thread::suspend_all cpu_lock(nullptr);
 
-	if (!vm::check_addr(offset))
+	if (!vm::check_addr(offset, sizeof(T)))
 	{
 		return false;
 	}
 
 	*vm::get_super_ptr<T>(offset) = value;
+
+	const bool exec_code_at_start = vm::check_addr(offset, 1, vm::page_executable);
+	const bool exec_code_at_end = [&]()
+	{
+		if constexpr (sizeof(T) == 1)
+		{
+			return exec_code_at_start;
+		}
+		else
+		{
+			return vm::check_addr(offset + sizeof(T) - 1, 1, vm::page_executable);
+		}
+	}();
+
+	if (exec_code_at_end || exec_code_at_start)
+	{
+		extern void ppu_register_function_at(u32, u32, ppu_function_t);
+
+		u32 addr = offset, size = sizeof(T);
+
+		if (exec_code_at_end && exec_code_at_start)
+		{
+			size = align<u32>(addr + size, 4) - (addr & -4);
+			addr &= -4;
+		}
+		else if (exec_code_at_end)
+		{
+			size -= align<u32>(size - 4096 + (addr & 4095), 4);
+			addr = align<u32>(addr, 4096);
+		}
+		else if (exec_code_at_start)
+		{
+			size = align<u32>(4096 - (addr & 4095), 4);
+			addr &= -4;
+		}
+
+		// Reinitialize executable code
+		ppu_register_function_at(addr, size, nullptr);
+	}
+
 	return true;
 }
 
@@ -526,8 +568,12 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 	setLayout(main_layout);
 
 	// Edit/Manage UI
-	connect(tbl_cheats, &QTableWidget::itemClicked, [=](QTableWidgetItem* item) {
-		int row = tbl_cheats->currentRow();
+	connect(tbl_cheats, &QTableWidget::itemClicked, [=](QTableWidgetItem* item)
+	{
+		if (!item)
+			return;
+
+		const int row = item->row();
 
 		if (row == -1)
 			return;
@@ -590,7 +636,8 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		}
 	});
 
-	connect(tbl_cheats, &QTableWidget::cellChanged, [=](int row, int column) {
+	connect(tbl_cheats, &QTableWidget::cellChanged, [=](int row, int column)
+	{
 		if (column != 1 && column != 4)
 		{
 			log_cheat.fatal("A column other than description and script was edited");
@@ -614,7 +661,8 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		g_cheat.save();
 	});
 
-	connect(tbl_cheats, &QTableWidget::customContextMenuRequested, [=](const QPoint& loc) {
+	connect(tbl_cheats, &QTableWidget::customContextMenuRequested, [=](const QPoint& loc)
+	{
 		QPoint globalPos       = tbl_cheats->mapToGlobal(loc);
 		QMenu* menu            = new QMenu();
 		QAction* delete_cheats = new QAction(tr("Delete"), menu);
@@ -622,7 +670,8 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		QAction* export_cheats = new QAction(tr("Export Cheats"));
 		QAction* reverse_cheat = new QAction(tr("Reverse-Lookup Cheat"));
 
-		connect(delete_cheats, &QAction::triggered, [=]() {
+		connect(delete_cheats, &QAction::triggered, [=]()
+		{
 			const auto selected = tbl_cheats->selectedItems();
 
 			std::set<int> rows;
@@ -641,13 +690,15 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 			update_cheat_list();
 		});
 
-		connect(import_cheats, &QAction::triggered, [=]() {
+		connect(import_cheats, &QAction::triggered, [=]()
+		{
 			QClipboard* clipboard = QGuiApplication::clipboard();
 			g_cheat.import_cheats_from_str(clipboard->text().toStdString());
 			update_cheat_list();
 		});
 
-		connect(export_cheats, &QAction::triggered, [=]() {
+		connect(export_cheats, &QAction::triggered, [=]()
+		{
 			const auto selected = tbl_cheats->selectedItems();
 
 			std::set<int> rows;
@@ -671,12 +722,13 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 			clipboard->setText(QString::fromStdString(export_string));
 		});
 
-		connect(reverse_cheat, &QAction::triggered, [=]() {
+		connect(reverse_cheat, &QAction::triggered, [=]()
+		{
 			QTableWidgetItem* item = tbl_cheats->item(tbl_cheats->currentRow(), 3);
 			if (item)
 			{
-				u32 offset = item->data(Qt::UserRole).toUInt();
-				u32 result = cheat_engine::reverse_lookup(offset, 32, 12);
+				const u32 offset = item->data(Qt::UserRole).toUInt();
+				const u32 result = cheat_engine::reverse_lookup(offset, 32, 12);
 
 				log_cheat.fatal("Result is 0x%x", result);
 			}
@@ -691,8 +743,9 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 		menu->exec(globalPos);
 	});
 
-	connect(btn_apply, &QPushButton::clicked, [=](int action) {
-		int row           = tbl_cheats->currentRow();
+	connect(btn_apply, &QPushButton::clicked, [=](bool /*checked*/)
+	{
+		const int row     = tbl_cheats->currentRow();
 		cheat_info* cheat = g_cheat.get(tbl_cheats->item(row, 0)->text().toStdString(), tbl_cheats->item(row, 3)->data(Qt::UserRole).toUInt());
 
 		if (!cheat)
@@ -746,14 +799,16 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 	});
 
 	// Search UI
-	connect(btn_new_search, &QPushButton::clicked, [=](int action) {
+	connect(btn_new_search, &QPushButton::clicked, [=](bool /*checked*/)
+	{
 		offsets_found.clear();
 		do_the_search();
 	});
 
-	connect(btn_filter_results, &QPushButton::clicked, [=](int action) { do_the_search(); });
+	connect(btn_filter_results, &QPushButton::clicked, [=](bool /*checked*/) { do_the_search(); });
 
-	connect(lst_search, &QListWidget::customContextMenuRequested, [=](const QPoint& loc) {
+	connect(lst_search, &QListWidget::customContextMenuRequested, [=](const QPoint& loc)
+	{
 		QPoint globalPos      = lst_search->mapToGlobal(loc);
 		QListWidgetItem* item = lst_search->item(lst_search->currentRow());
 		if (!item)
@@ -763,11 +818,12 @@ cheat_manager_dialog::cheat_manager_dialog(QWidget* parent)
 
 		QAction* add_to_cheat_list = new QAction(tr("Add to cheat list"), menu);
 
-		u32 offset       = offsets_found[lst_search->currentRow()];
-		cheat_type type  = static_cast<cheat_type>(cbx_cheat_search_type->currentIndex());
-		std::string name = Emu.GetTitle();
+		const u32 offset       = offsets_found[lst_search->currentRow()];
+		const cheat_type type  = static_cast<cheat_type>(cbx_cheat_search_type->currentIndex());
+		const std::string name = Emu.GetTitle();
 
-		connect(add_to_cheat_list, &QAction::triggered, [=]() {
+		connect(add_to_cheat_list, &QAction::triggered, [=]()
+		{
 			if (g_cheat.exist(name, offset))
 			{
 				if (QMessageBox::question(this, tr("Cheat already exist"), tr("Do you want to overwrite the existing cheat?"), QMessageBox::Ok | QMessageBox::Cancel) != QMessageBox::Ok)
@@ -881,7 +937,6 @@ std::pair<bool, bool> cheat_manager_dialog::convert_and_set(u32 offset)
 void cheat_manager_dialog::do_the_search()
 {
 	bool res_conv          = false;
-	QString qstr_to_search = edt_cheat_search_value->text();
 
 	// TODO: better way to do this?
 	switch (static_cast<cheat_type>(cbx_cheat_search_type->currentIndex()))
@@ -913,11 +968,11 @@ void cheat_manager_dialog::do_the_search()
 
 void cheat_manager_dialog::update_cheat_list()
 {
-	u32 num_rows = 0;
+	size_t num_rows = 0;
 	for (const auto& name : g_cheat.cheats)
 		num_rows += g_cheat.cheats[name.first].size();
 
-	tbl_cheats->setRowCount(num_rows);
+	tbl_cheats->setRowCount(::narrow<int>(num_rows));
 
 	u32 row = 0;
 	{

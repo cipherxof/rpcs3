@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "PPUFunction.h"
 #include "PPUCallback.h"
@@ -7,13 +7,13 @@
 #include "Emu/Memory/vm_var.h"
 
 // Helper function
-constexpr const char* ppu_select_name(const char* name, u32 id)
+constexpr const char* ppu_select_name(const char* name, u32 /*id*/)
 {
 	return name;
 }
 
 // Helper function
-constexpr const char* ppu_select_name(const char* name, const char* orig_name)
+constexpr const char* ppu_select_name(const char* /*name*/, const char* orig_name)
 {
 	return orig_name;
 }
@@ -293,4 +293,4 @@ inline RT ppu_execute(ppu_thread& ppu, Args... args)
 
 #define REG_VAR(module, var) REG_VNID(module, #var, var)
 
-#define UNIMPLEMENTED_FUNC(module) module.todo("%s", __func__)
+#define UNIMPLEMENTED_FUNC(module) module.todo("%s()", __func__)
