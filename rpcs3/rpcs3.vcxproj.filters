@@ -656,6 +656,9 @@
     <ClCompile Include="rpcs3qt\_discord_utils.cpp">
       <Filter>Gui\utils</Filter>
     </ClCompile>
+    <ClCompile Include="Input/keyboard_pad_handler.cpp">
+      <Filter>Io\Keyboard</Filter>
+    </ClCompile>
     <ClCompile Include="QTGeneratedFiles\Release - LLVM\moc_trophy_manager_dialog.cpp">
       <Filter>Generated Files\Release - LLVM</Filter>
     </ClCompile>
@@ -712,6 +715,9 @@
     </ClCompile>
     <ClCompile Include="QTGeneratedFiles\Debug - LLVM\moc_osk_dialog_frame.cpp">
       <Filter>Generated Files\Debug - LLVM</Filter>
+    </ClCompile>
+    <ClCompile Include="Input/ds3_pad_handler.cpp">
+      <Filter>Io\DS3</Filter>
     </ClCompile>
     <ClCompile Include="rpcs3qt\gui_application.cpp">
       <Filter>Gui</Filter>
@@ -782,11 +788,20 @@
     <ClCompile Include="QTGeneratedFiles\Debug - LLVM\moc_cheat_manager.cpp">
       <Filter>Generated Files\Debug - LLVM</Filter>
     </ClCompile>
-    <ClCompile Include="Input\ds3_pad_handler.cpp">
+    <ClCompile Include="QTGeneratedFiles\Release - LLVM\moc_pkg_install_dialog.cpp">
+      <Filter>Generated Files\Release - LLVM</Filter>
+    </ClCompile>
+    <ClCompile Include="QTGeneratedFiles\Debug\moc_pkg_install_dialog.cpp">
       <Filter>Generated Files\Debug</Filter>
     </ClCompile>
-    <ClCompile Include="Input\keyboard_pad_handler.cpp">
-      <Filter>Generated Files\Debug</Filter>
+    <ClCompile Include="QTGeneratedFiles\Release\moc_pkg_install_dialog.cpp">
+      <Filter>Generated Files\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="QTGeneratedFiles\Debug - LLVM\moc_pkg_install_dialog.cpp">
+      <Filter>Generated Files\Debug - LLVM</Filter>
+    </ClCompile>
+    <ClCompile Include="rpcs3qt\pkg_install_dialog.cpp">
+      <Filter>Gui\misc dialogs</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -795,6 +810,9 @@
     </ClInclude>
     <ClInclude Include="Input\ds4_pad_handler.h">
       <Filter>Io\DS4</Filter>
+    </ClInclude>
+    <ClInclude Include="Input\mm_joystick_handler.h">
+      <Filter>Io\MMJoystick</Filter>
     </ClInclude>
     <ClInclude Include="Input\xinput_pad_handler.h">
       <Filter>Io\XInput</Filter>
@@ -865,6 +883,12 @@
     <ClInclude Include="rpcs3qt\_discord_utils.h">
       <Filter>Gui\utils</Filter>
     </ClInclude>
+    <ClInclude Include="Input/keyboard_pad_handler.h">
+      <Filter>Io\Keyboard</Filter>
+    </ClInclude>
+    <ClInclude Include="Input/ds3_pad_handler.h">
+      <Filter>Io\DS3</Filter>
+    </ClInclude>
     <ClInclude Include="rpcs3qt\stylesheets.h">
       <Filter>Gui</Filter>
     </ClInclude>
@@ -873,15 +897,6 @@
     </ClInclude>
     <ClInclude Include="display_sleep_control.h">
       <Filter>Gui</Filter>
-    </ClInclude>
-    <ClInclude Include="Input\ds3_pad_handler.h">
-      <Filter>Generated Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Input\keyboard_pad_handler.h">
-      <Filter>Generated Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Input/mm_joystick_handler.h">
-      <Filter>Generated Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -1040,6 +1055,9 @@
     </CustomBuild>
     <CustomBuild Include="rpcs3qt\cheat_manager.h">
       <Filter>Gui\cheat manager</Filter>
+    </CustomBuild>
+    <CustomBuild Include="rpcs3qt\pkg_install_dialog.h">
+      <Filter>Gui\misc dialogs</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>

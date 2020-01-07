@@ -113,6 +113,8 @@ struct vdec_context final
 	const u32 cb_arg;
 	u32 mem_bias{};
 
+	CellVdecMsgType current_state = CELL_VDEC_MSG_TYPE_SEQDONE;
+
 	u32 frc_set{}; // Frame Rate Override
 	u64 next_pts{};
 	u64 next_dts{};
@@ -386,6 +388,7 @@ struct vdec_context final
 						std::lock_guard{mutex}, out.push_back(std::move(frame));
 
 						cb_func(ppu, vid, CELL_VDEC_MSG_TYPE_PICOUT, CELL_OK, cb_arg);
+						current_state = CELL_VDEC_MSG_TYPE_PICOUT;
 						lv2_obj::sleep(ppu);
 					}
 
@@ -398,6 +401,7 @@ struct vdec_context final
 				if (out_max)
 				{
 					cb_func(ppu, vid, cmd->mode != -1 ? CELL_VDEC_MSG_TYPE_AUDONE : CELL_VDEC_MSG_TYPE_SEQDONE, CELL_OK, cb_arg);
+					current_state = CELL_VDEC_MSG_TYPE_SEQDONE;
 					lv2_obj::sleep(ppu);
 				}
 
@@ -432,6 +436,11 @@ static void vdecEntry(ppu_thread& ppu, u32 vid)
 
 static error_code vdecQueryAttr(s32 type, u32 profile, u32 spec_addr /* may be 0 */, vm::ptr<CellVdecAttr> attr)
 {
+	if (!attr)
+	{
+		return CELL_VDEC_ERROR_ARG;
+	}
+
 	switch (type) // TODO: check profile levels
 	{
 	case CELL_VDEC_CODEC_TYPE_AVC: cellVdec.warning("cellVdecQueryAttr: AVC (profile=%d)", profile); break;
@@ -452,12 +461,22 @@ error_code cellVdecQueryAttr(vm::cptr<CellVdecType> type, vm::ptr<CellVdecAttr> 
 {
 	cellVdec.warning("cellVdecQueryAttr(type=*0x%x, attr=*0x%x)", type, attr);
 
+	if (!type || !attr)
+	{
+		return CELL_VDEC_ERROR_ARG;
+	}
+
 	return vdecQueryAttr(type->codecType, type->profileLevel, 0, attr);
 }
 
 error_code cellVdecQueryAttrEx(vm::cptr<CellVdecTypeEx> type, vm::ptr<CellVdecAttr> attr)
 {
 	cellVdec.warning("cellVdecQueryAttrEx(type=*0x%x, attr=*0x%x)", type, attr);
+
+	if (!type || !attr)
+	{
+		return CELL_VDEC_ERROR_ARG;
+	}
 
 	return vdecQueryAttr(type->codecType, type->profileLevel, type->codecSpecificInfo_addr, attr);
 }
@@ -524,6 +543,11 @@ error_code cellVdecClose(ppu_thread& ppu, u32 handle)
 		return CELL_VDEC_ERROR_ARG;
 	}
 
+	if (vdec->current_state == CELL_VDEC_MSG_TYPE_AUDONE)
+	{
+		return { CELL_VDEC_ERROR_SEQ, +vdec->current_state };
+	}
+
 	lv2_obj::sleep(ppu);
 	vdec->out_max = 0;
 	vdec->in_cmd.push(vdec_close);
@@ -549,6 +573,11 @@ error_code cellVdecStartSeq(u32 handle)
 		return CELL_VDEC_ERROR_ARG;
 	}
 
+	if (vdec->current_state > CELL_VDEC_MSG_TYPE_PICOUT)
+	{
+		return { CELL_VDEC_ERROR_SEQ, +vdec->current_state };
+	}
+
 	vdec->in_cmd.push(vdec_start_seq);
 	return CELL_OK;
 }
@@ -564,6 +593,11 @@ error_code cellVdecEndSeq(u32 handle)
 		return CELL_VDEC_ERROR_ARG;
 	}
 
+	if (vdec->current_state != CELL_VDEC_MSG_TYPE_SEQDONE)
+	{
+		return { CELL_VDEC_ERROR_SEQ, +vdec->current_state };
+	}
+
 	vdec->in_cmd.push(vdec_cmd{-1});
 	return CELL_OK;
 }
@@ -574,7 +608,7 @@ error_code cellVdecDecodeAu(u32 handle, CellVdecDecodeMode mode, vm::cptr<CellVd
 
 	const auto vdec = idm::get<vdec_context>(handle);
 
-	if (mode < 0 || mode > CELL_VDEC_DEC_MODE_PB_SKIP || !vdec)
+	if (!auInfo || !vdec || mode < 0 || mode > CELL_VDEC_DEC_MODE_PB_SKIP)
 	{
 		return CELL_VDEC_ERROR_ARG;
 	}
@@ -601,10 +635,26 @@ error_code cellVdecGetPicture(u32 handle, vm::cptr<CellVdecPicFormat> format, vm
 
 	const auto vdec = idm::get<vdec_context>(handle);
 
-	if (!format || !vdec || format->formatType > 4 || (format->formatType <= CELL_VDEC_PICFMT_RGBA32_ILV && format->colorMatrixType > CELL_VDEC_COLOR_MATRIX_TYPE_BT709))
+	if (!vdec || !format)
 	{
 		return CELL_VDEC_ERROR_ARG;
 	}
+
+	if (vdec->current_state > CELL_VDEC_MSG_TYPE_SEQDONE)
+	{
+		return { CELL_VDEC_ERROR_SEQ, +vdec->current_state };
+	}
+
+	if (format->formatType > 4 || (format->formatType <= CELL_VDEC_PICFMT_RGBA32_ILV && format->colorMatrixType > CELL_VDEC_COLOR_MATRIX_TYPE_BT709))
+	{
+		return CELL_VDEC_ERROR_ARG;
+	}
+
+	// TODO: something like this is checked here, maybe only if outBuff[0] != 0
+	//if (outBuff && outBuff[0] != 8 && outBuff[0] != 12)
+	//{
+	//	return CELL_VDEC_ERROR_ARG;
+	//}
 
 	vdec_frame frame;
 	bool notify = false;
@@ -725,9 +775,14 @@ error_code cellVdecGetPicItem(u32 handle, vm::pptr<CellVdecPicItem> picItem)
 
 	const auto vdec = idm::get<vdec_context>(handle);
 
-	if (!vdec)
+	if (!vdec || !picItem)
 	{
 		return CELL_VDEC_ERROR_ARG;
+	}
+
+	if (vdec->current_state > CELL_VDEC_MSG_TYPE_SEQDONE)
+	{
+		return { CELL_VDEC_ERROR_SEQ, +vdec->current_state };
 	}
 
 	AVFrame* frame{};
@@ -925,19 +980,27 @@ error_code cellVdecGetPicItem(u32 handle, vm::pptr<CellVdecPicItem> picItem)
 	return CELL_OK;
 }
 
-error_code cellVdecSetFrameRate(u32 handle, CellVdecFrameRate frc)
+error_code cellVdecSetFrameRate(u32 handle, CellVdecFrameRate frameRateCode)
 {
-	cellVdec.trace("cellVdecSetFrameRate(handle=0x%x, frc=0x%x)", handle, +frc);
+	cellVdec.trace("cellVdecSetFrameRate(handle=0x%x, frameRateCode=0x%x)", handle, +frameRateCode);
 
 	const auto vdec = idm::get<vdec_context>(handle);
 
-	if (!vdec)
+	// TODO: is the frameRateCode check correct?
+	//       rlwinm    r0, r4, 0,24,28
+	//       cmpwi     cr7, r0, 0x80
+	//       bne       cr7, return CELL_VDEC_ERROR_ARG
+	if (!vdec || frameRateCode < CELL_VDEC_FRC_24000DIV1001 || frameRateCode > CELL_VDEC_FRC_60)
 	{
 		return CELL_VDEC_ERROR_ARG;
 	}
 
-	// TODO: check frc value
-	vdec->in_cmd.push(frc);
+	if (vdec->current_state > CELL_VDEC_MSG_TYPE_ERROR)
+	{
+		return { CELL_VDEC_ERROR_SEQ, +vdec->current_state };
+	}
+
+	vdec->in_cmd.push(frameRateCode);
 	return CELL_OK;
 }
 
@@ -971,9 +1034,22 @@ error_code cellVdecSetFrameRateExt()
 	return CELL_OK;
 }
 
-error_code cellVdecSetPts()
+error_code cellVdecSetPts(u32 handle, vm::ptr<void> unk)
 {
-	UNIMPLEMENTED_FUNC(cellVdec);
+	cellVdec.error("cellVdecSetPts(handle=0x%x, unk=*0x%x)", handle, unk);
+
+	const auto vdec = idm::get<vdec_context>(handle);
+
+	if (!vdec || !unk)
+	{
+		return CELL_VDEC_ERROR_ARG;
+	}
+
+	if (vdec->current_state > CELL_VDEC_MSG_TYPE_ERROR)
+	{
+		return { CELL_VDEC_ERROR_SEQ, +vdec->current_state };
+	}
+
 	return CELL_OK;
 }
 

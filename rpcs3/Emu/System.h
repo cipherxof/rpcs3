@@ -159,7 +159,6 @@ enum class video_resolution
 
 enum class video_aspect
 {
-	_auto,
 	_4_3,
 	_16_9,
 };
