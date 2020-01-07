@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include "overlay_animation.h"
 #include "overlay_controls.h"
 
 #include "../../../Utilities/date_time.h"
@@ -502,8 +503,11 @@ namespace rsx
 			image_view image;
 			label text_view;
 
+			u64 display_sched_id = 0;
 			u64 creation_time = 0;
 			std::unique_ptr<image_info> icon_info;
+
+			animation_translate sliding_animation;
 
 		public:
 			trophy_notification();
