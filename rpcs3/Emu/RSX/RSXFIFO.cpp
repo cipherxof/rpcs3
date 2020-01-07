@@ -482,13 +482,9 @@ namespace rsx
 			//Update performance counters with time spent in idle mode
 			performance_counters.idle_time += (get_system_time() - performance_counters.FIFO_idle_timestamp);
 
-			if (performance_counters.state == FIFO_state::spinning)
-			{
-				//TODO: Properly simulate FIFO wake delay.
-				//NOTE: The typical spin setup is a NOP followed by a jump-to-self
-				//NOTE: There is a small delay when the jump address is dynamically edited by cell
-				busy_wait(3000);
-			}
+			// Hack: delay rsx wake-up according to setting
+			if (performance_counters.state != FIFO_state::nop)
+				delay_fifo();
 
 			performance_counters.state = FIFO_state::running;
 		}

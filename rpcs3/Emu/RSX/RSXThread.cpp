@@ -2245,6 +2245,38 @@ namespace rsx
 		}
 	}
 
+	void thread::delay_fifo(u64 div)
+	{
+		// TODO: Nanoseconds accuracy
+		u64 diff = ::aligned_div(g_cfg.video.driver_wakeup_delay + 0u, div);
+		const u64 until = get_system_time() + diff;
+
+		if (!diff)
+		{
+			return;
+		}
+
+		// TODO: Determine best value 
+		constexpr u32 try_yield_delay = 2;
+
+		while (true)
+		{
+			// TODO: Determine best value 
+			if (diff >= try_yield_delay)
+			{
+				std::this_thread::yield();
+			}
+			else
+			{
+				busy_wait(100);
+			}
+
+			const u64 current = get_system_time();
+			if (current >= until) return;
+			diff = until - current;
+		}
+	}
+
 	u32 thread::get_fifo_cmd()
 	{
 		// Last fifo cmd for logging and utility
