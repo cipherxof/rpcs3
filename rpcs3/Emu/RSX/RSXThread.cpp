@@ -2272,14 +2272,14 @@ namespace rsx
 			// NOTE: On ps3 this function has very high accuracy
 			if (constexpr u64 host_min_quantum = 500;
 #endif
-			remaining > host_min_quantom)
+			remaining > host_min_quantum)
 			{
 #ifdef __linux__
-					// Do not wait for the last quantum to avoid loss of accuracy
-					thread_ctrl::wait_for(remaining - ((remaining % host_min_quantum) + host_min_quantum), false);
+				// Do not wait for the last quantum to avoid loss of accuracy
+				thread_ctrl::wait_for(remaining - ((remaining % host_min_quantum) + host_min_quantum), false);
 #else
-					// Wait on multiple of min quantum for large durations to avoid overloading low thread cpus
-					thread_ctrl::wait_for(remaining - (remaining % host_min_quantum), false);
+				// Wait on multiple of min quantum for large durations to avoid overloading low thread cpus
+				thread_ctrl::wait_for(remaining - (remaining % host_min_quantum), false);
 #endif
 			}
 			else if (remaining >= try_yield_delay)
