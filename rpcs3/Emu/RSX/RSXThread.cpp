@@ -2248,21 +2248,41 @@ namespace rsx
 	void thread::delay_fifo(u64 div)
 	{
 		// TODO: Nanoseconds accuracy
-		u64 diff = ::aligned_div(g_cfg.video.driver_wakeup_delay + 0u, div);
-		const u64 until = get_system_time() + diff;
+		u64 remaining = g_cfg.video.driver_wakeup_delay;
 
-		if (!diff)
+		if (!remaining)
 		{
 			return;
 		}
+
+		// Some cases do not need full delay
+		remaining = ::aligned_div(remaining, div);
+		const u64 until = get_system_time() + remaining;
 
 		// TODO: Determine best value 
 		constexpr u32 try_yield_delay = 2;
 
 		while (true)
 		{
-			// TODO: Determine best value 
-			if (diff >= try_yield_delay)
+#ifdef __linux__
+			// NOTE: Assumption that timer initialization has succeeded
+			if (u64 host_min_quantum = remaining <= 1000 ? 10 : 50;
+#else
+			// Host scheduler quantum for windows (worst case)
+			// NOTE: On ps3 this function has very high accuracy
+			if (constexpr u64 host_min_quantum = 500;
+#endif
+			remaining > host_min_quantom)
+			{
+#ifdef __linux__
+					// Do not wait for the last quantum to avoid loss of accuracy
+					thread_ctrl::wait_for(remaining - ((remaining % host_min_quantum) + host_min_quantum), false);
+#else
+					// Wait on multiple of min quantum for large durations to avoid overloading low thread cpus
+					thread_ctrl::wait_for(remaining - (remaining % host_min_quantum), false);
+#endif
+			}
+			else if (remaining >= try_yield_delay)
 			{
 				std::this_thread::yield();
 			}
@@ -2272,8 +2292,8 @@ namespace rsx
 			}
 
 			const u64 current = get_system_time();
-			if (current >= until) return;
-			diff = until - current;
+			if (current >= until) break;
+			remaining = until - current;
 		}
 	}
 
