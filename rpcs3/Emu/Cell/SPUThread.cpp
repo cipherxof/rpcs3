@@ -1048,7 +1048,7 @@ std::string spu_thread::dump() const
 
 void spu_thread::cpu_init()
 {
-	gpr = {};
+	std::memset(gpr.data(), 0, gpr.size() * sizeof(gpr[0]));
 	fpscr.Reset();
 
 	ch_mfc_cmd = {};
@@ -1059,7 +1059,6 @@ void spu_thread::cpu_init()
 	mfc_fence = 0;
 	ch_tag_upd = 0;
 	ch_tag_mask = 0;
-	mfc_prxy_mask = 0;
 	ch_tag_stat.data.raw() = {};
 	ch_stall_mask = 0;
 	ch_stall_stat.data.raw() = {};
@@ -1083,6 +1082,9 @@ void spu_thread::cpu_init()
 		ch_snr2.data.raw() = {};
 
 		snr_config = 0;
+
+		mfc_prxy_mask.raw() = 0;
+		mfc_prxy_write_state = {};
 	}
 
 	run_ctrl.raw() = 0;
@@ -2786,7 +2788,7 @@ bool spu_thread::stop_and_signal(u32 code)
 
 	if (offset >= RAW_SPU_BASE_ADDR)
 	{
-		state += cpu_flag::wait;
+		state += cpu_flag::stop + cpu_flag::wait;
 		status.atomic_op([code](u32& status)
 		{
 			status = (status & 0xffff) | (code << 16);
@@ -2795,7 +2797,6 @@ bool spu_thread::stop_and_signal(u32 code)
 		});
 
 		int_ctrl[2].set(SPU_INT2_STAT_SPU_STOP_AND_SIGNAL_INT);
-		state += cpu_flag::stop;
 		check_state();
 		return true;
 	}
@@ -3139,6 +3140,8 @@ void spu_thread::halt()
 
 	if (offset >= RAW_SPU_BASE_ADDR)
 	{
+		state += cpu_flag::stop + cpu_flag::wait;
+
 		status.atomic_op([](u32& status)
 		{
 			status |= SPU_STATUS_STOPPED_BY_HALT;
@@ -3147,7 +3150,6 @@ void spu_thread::halt()
 
 		int_ctrl[2].set(SPU_INT2_STAT_SPU_HALT_OR_STEP_INT);
 
-		state += cpu_flag::stop;
 		spu_runtime::g_escape(this);
 	}
 
