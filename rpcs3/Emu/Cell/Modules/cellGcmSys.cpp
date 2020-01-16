@@ -98,6 +98,18 @@ atomic_t<u16> IoMapTable[0xC00]{};
 
 error_code gcmMapEaIoAddress(u32 ea, u32 io, u32 size, bool is_strict);
 
+u32 gcmIoOffsetToAddress(u32 ioOffset)
+{
+	const u32 upper12Bits = offsetTable.eaAddress[ioOffset >> 20];
+
+	if (static_cast<s16>(upper12Bits) < 0)
+	{
+		return 0;
+	}
+
+	return (upper12Bits << 20) | (ioOffset & 0xFFFFF);
+}
+
 void InitOffsetTable()
 {
 	offsetTable.ioAddress.set(vm::alloc(3072 * sizeof(u16), vm::main));
@@ -107,7 +119,6 @@ void InitOffsetTable()
 	memset(offsetTable.eaAddress.get_ptr(), 0xFF, 512 * sizeof(u16));
 	memset(IoMapTable, 0, 3072 * sizeof(u16));
 
-	memset(&RSXIOMem, 0xFF, sizeof(RSXIOMem));
 	reserved_size = 0;
 }
 
@@ -132,7 +143,7 @@ vm::ptr<CellGcmReportData> cellGcmGetReportDataAddressLocation(u32 index, u32 lo
 			cellGcmSys.error("cellGcmGetReportDataAddressLocation: Wrong main index (%d)", index);
 		}
 
-		return vm::ptr<CellGcmReportData>::make(RSXIOMem.RealAddr(0x0e000000 + index * 0x10));
+		return vm::ptr<CellGcmReportData>::make(gcmIoOffsetToAddress(0x0e000000 + index * 0x10));
 	}
 
 	// Anything else is Local
@@ -225,24 +236,8 @@ u64 cellGcmGetTimeStampLocation(u32 index, u32 location)
 {
 	cellGcmSys.warning("cellGcmGetTimeStampLocation(index=%d, location=%d)", index, location);
 
-	if (location == CELL_GCM_LOCATION_LOCAL) {
-		if (index >= 2048) {
-			cellGcmSys.error("cellGcmGetTimeStampLocation: Wrong local index (%d)", index);
-			return 0;
-		}
-		return vm::read64(g_fxo->get<gcm_config>()->gcm_info.label_addr + 0x1400 + index * 0x10);
-	}
-
-	if (location == CELL_GCM_LOCATION_MAIN) {
-		if (index >= 1024 * 1024) {
-			cellGcmSys.error("cellGcmGetTimeStampLocation: Wrong main index (%d)", index);
-			return 0;
-		}
-		return vm::read64(RSXIOMem.RealAddr(index * 0x10));
-	}
-
-	cellGcmSys.error("cellGcmGetTimeStampLocation: Wrong location (%d)", location);
-	return 0;
+	// NOTE: No error checkings
+	return cellGcmGetReportDataAddressLocation(index, location)->timer;
 }
 
 //----------------------------------------------------------------------------
@@ -966,14 +961,14 @@ error_code cellGcmIoOffsetToAddress(u32 ioOffset, vm::ptr<u32> address)
 {
 	cellGcmSys.trace("cellGcmIoOffsetToAddress(ioOffset=0x%x, address=*0x%x)", ioOffset, address);
 
-	const u32 upper12Bits = offsetTable.eaAddress[ioOffset >> 20];
+	const u32 addr = gcmIoOffsetToAddress(ioOffset);
 
-	if (static_cast<s16>(upper12Bits) < 0)
+	if (!addr)
 	{
 		return CELL_GCM_ERROR_FAILURE;
 	}
 
-	*address = (upper12Bits << 20) | (ioOffset & 0xFFFFF);
+	*address = addr;
 
 	return CELL_OK;
 }
@@ -1092,12 +1087,14 @@ error_code cellGcmUnmapEaIoAddress(u32 ea)
 
 	if (const u32 size = IoMapTable[ea >>= 20].exchange(0))
 	{
+		const auto render = rsx::get_current_renderer();
+
 		const u32 io = offsetTable.ioAddress[ea];
 
 		for (u32 i = 0; i < size; i++)
 		{
-			RSXIOMem.io[ea + i].raw() = offsetTable.ioAddress[ea + i] = 0xFFFF;
-			RSXIOMem.ea[io + i].raw() = offsetTable.eaAddress[io + i] = 0xFFFF;
+			render->iomap_table.io[ea + i] = static_cast<s16>(offsetTable.ioAddress[ea + i] = 0xFFFF);
+			render->iomap_table.ea[io + i] = static_cast<s16>(offsetTable.eaAddress[io + i] = 0xFFFF);
 		}
 
 		std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -1114,14 +1111,15 @@ error_code cellGcmUnmapIoAddress(u32 io)
 {
 	cellGcmSys.warning("cellGcmUnmapIoAddress(io=0x%x)", io);
 
-	if (u32 size = IoMapTable[RSXIOMem.ea[io >>= 20]].exchange(0))
+	if (u32 size = IoMapTable[offsetTable.eaAddress[io >>= 20]].exchange(0))
 	{
+		const auto render = rsx::get_current_renderer();
 		const u32 ea = offsetTable.eaAddress[io];
 
 		for (u32 i = 0; i < size; i++)
 		{
-			RSXIOMem.io[ea + i].raw() = offsetTable.ioAddress[ea + i] = 0xFFFF;
-			RSXIOMem.ea[io + i].raw() = offsetTable.eaAddress[io + i] = 0xFFFF;
+			render->iomap_table.io[ea + i] = static_cast<s16>(offsetTable.ioAddress[ea + i] = 0xFFFF);
+			render->iomap_table.ea[io + i] = static_cast<s16>(offsetTable.eaAddress[io + i] = 0xFFFF);
 		}
 
 		std::atomic_thread_fence(std::memory_order_seq_cst);
