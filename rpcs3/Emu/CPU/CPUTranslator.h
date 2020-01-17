@@ -2729,6 +2729,7 @@ public:
 		return result;
 	}
 
+	// TODO: Support doubles
 	auto fre(value_t<f32[4]> a)
 	{
 		decltype(a) result;

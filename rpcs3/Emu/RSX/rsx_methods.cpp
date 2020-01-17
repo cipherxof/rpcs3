@@ -84,7 +84,7 @@ namespace rsx
 				if (addr != rsx->label_addr + 0x10)
 				{
 					rsx->flush_fifo();
-					rsx->delay_fifo(2);
+					rsx->fifo_wake_delay(2);
 				}
 
 				return;
@@ -127,8 +127,8 @@ namespace rsx
 				std::this_thread::yield();
 			}
 
+			rsx->fifo_wake_delay();
 			rsx->performance_counters.idle_time += (get_system_time() - start);
-			rsx->delay_fifo();
 		}
 
 		void semaphore_release(thread* rsx, u32 /*_reg*/, u32 arg)
