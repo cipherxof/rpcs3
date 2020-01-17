@@ -477,16 +477,21 @@ namespace rsx
 			fmt::throw_exception("Unexpected command 0x%x" HERE, cmd);
 		}
 
-		if (performance_counters.state != FIFO_state::running)
+		if (const auto state = performance_counters.state;
+			state != FIFO_state::running)
 		{
-			//Update performance counters with time spent in idle mode
-			performance_counters.idle_time += (get_system_time() - performance_counters.FIFO_idle_timestamp);
-
-			// Hack: delay rsx wake-up according to setting
-			if (performance_counters.state != FIFO_state::nop)
-				delay_fifo();
-
 			performance_counters.state = FIFO_state::running;
+
+			// Hack: Delay FIFO wake-up according to setting
+			// NOTE: The typical spin setup is a NOP followed by a jump-to-self
+			// NOTE: There is a small delay when the jump address is dynamically edited by cell
+			if (state != FIFO_state::nop)
+			{
+				fifo_wake_delay();
+			}
+
+			// Update performance counters with time spent in idle mode
+			performance_counters.idle_time += (get_system_time() - performance_counters.FIFO_idle_timestamp);
 		}
 
 		do

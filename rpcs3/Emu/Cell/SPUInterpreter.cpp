@@ -1908,14 +1908,23 @@ bool spu_interpreter_precise::FREST(spu_thread& spu, spu_opcode_t op)
 	for (int i = 0; i < 4; i++)
 	{
 		const auto a = ra._f[i];
-		if (fexpf(a) == 0)
+		switch (fexpf(a))
+		{
+		case 0:
 		{
 			spu.fpscr.setDivideByZeroFlag(i);
 			res._f[i] = extended(std::signbit(a), 0x7FFFFF);
+			break;
 		}
-		else if (fexpf(a) >= 253)
+		case (0x7e800000 >> 23): // Special case for value not handled properly in rcpps
+		{
 			res._f[i] = 0.0f;
+			break;
+		}
+		default: break;
+		}
 	}
+
 	spu.gpr[op.rt] = res;
 	return true;
 }

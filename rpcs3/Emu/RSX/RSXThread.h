@@ -607,7 +607,7 @@ namespace rsx
 		atomic_t<bool> external_interrupt_ack{ false };
 		void flush_fifo();
 		void recover_fifo();
-		void delay_fifo(u64 div = 1);
+		void fifo_wake_delay(u64 div = 1);
 		u32 get_fifo_cmd();
 
 		// Performance approximation counters
@@ -657,6 +657,7 @@ namespace rsx
 		u32 label_addr;
 
 		u32 main_mem_size{0};
+		u32 local_mem_size{0};
 
 		bool m_rtts_dirty;
 		bool m_textures_dirty[16];
