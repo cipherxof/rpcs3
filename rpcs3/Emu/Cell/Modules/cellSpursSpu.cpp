@@ -1792,7 +1792,6 @@ void spursTasksetDispatch(spu_thread& spu)
 		if (elfAddr & 2)
 		{
 			// TODO: Figure this out
-			spu.status |= SPU_STATUS_STOPPED_BY_STOP;
 			spu_runtime::g_escape(&spu);
 		}
 
@@ -1846,7 +1845,6 @@ void spursTasksetDispatch(spu_thread& spu)
 		if (elfAddr & 2)
 		{
 			// TODO: Figure this out
-			spu.status |= SPU_STATUS_STOPPED_BY_STOP;
 			spu_runtime::g_escape(&spu);
 		}
 
