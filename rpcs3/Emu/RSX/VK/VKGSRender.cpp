@@ -731,7 +731,6 @@ bool VKGSRender::on_access_violation(u32 address, bool is_writing)
 		if (!is_current_thread())
 		{
 			//Always submit primary cb to ensure state consistency (flush pending changes such as image transitions)
-			vm::temporary_unlock();
 
 			std::lock_guard lock(m_flush_queue_mutex);
 

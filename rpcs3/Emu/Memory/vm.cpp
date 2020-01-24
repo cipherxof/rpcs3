@@ -92,6 +92,7 @@ namespace vm
 		}
 	}
 
+	template <bool use_mutex>
 	void passive_lock(cpu_thread& cpu)
 	{
 		if (UNLIKELY(g_tls_locked && *g_tls_locked == &cpu))
@@ -99,23 +100,34 @@ namespace vm
 			return;
 		}
 
-		if (LIKELY(g_mutex.is_lockable()))
+		while (true)
 		{
-			// Optimistic path (hope that mutex is not exclusively locked)
-			_register_lock(&cpu);
-
 			if (LIKELY(g_mutex.is_lockable()))
 			{
-				return;
+				// Optimistic path (hope that mutex is not exclusively locked)
+				_register_lock(&cpu);
+
+				if (LIKELY(g_mutex.is_lockable()))
+				{
+					return;
+				}
+
+				passive_unlock(cpu);
 			}
 
-			passive_unlock(cpu);
+			if constexpr (use_mutex)
+			{
+				break;
+			}
+
+			std::this_thread::yield();
 		}
 
 		::reader_lock lock(g_mutex);
 		_register_lock(&cpu);
 	}
 
+	template <bool use_mutex>
 	atomic_t<u64>* passive_lock(const u32 addr, const u32 end)
 	{
 		static const auto test_addr = [](const u32 target, const u32 addr, const u32 end)
@@ -125,17 +137,27 @@ namespace vm
 
 		atomic_t<u64>* _ret;
 
-		if (LIKELY(test_addr(g_addr_lock.load(), addr, end)))
+		while (true)
 		{
-			// Optimistic path (hope that address range is not locked)
-			_ret = _register_range_lock(u64{end} << 32 | addr);
-
 			if (LIKELY(test_addr(g_addr_lock.load(), addr, end)))
 			{
-				return _ret;
+				// Optimistic path (hope that address range is not locked)
+				_ret = _register_range_lock(u64{end} << 32 | addr);
+
+				if (LIKELY(test_addr(g_addr_lock.load(), addr, end)))
+				{
+					return _ret;
+				}
+
+				*_ret = 0;
 			}
 
-			*_ret = 0;
+			if constexpr (use_mutex)
+			{
+				break;
+			}
+
+			std::this_thread::yield();
 		}
 
 		{
@@ -1145,6 +1167,11 @@ namespace vm
 		utils::memory_decommit(g_stat_addr, 0x100000000);
 		utils::memory_decommit(g_reservations, 0x100000000);
 	}
+
+	template void passive_lock<true>(cpu_thread& cpu);
+	template void passive_lock<false>(cpu_thread& cpu);
+	template atomic_t<u64>* passive_lock<true>(const u32, const u32);
+	template atomic_t<u64>* passive_lock<false>(const u32, const u32);
 }
 
 void fmt_class_string<vm::_ptr_base<const void, u32>>::format(std::string& out, u64 arg)

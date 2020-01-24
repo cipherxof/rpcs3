@@ -12,8 +12,8 @@ namespace vm
 	extern thread_local atomic_t<cpu_thread*>* g_tls_locked;
 
 	// Register reader
-	void passive_lock(cpu_thread& cpu);
-	atomic_t<u64>* passive_lock(const u32 begin, const u32 end);
+	template <bool use_mutex = true> void passive_lock(cpu_thread& cpu);
+	template <bool use_mutex = true> atomic_t<u64>* passive_lock(const u32 begin, const u32 end);
 
 	// Unregister reader
 	void passive_unlock(cpu_thread& cpu);
