@@ -392,13 +392,21 @@ namespace vm
 
 		const u8 flags_both = flags_set & flags_clear;
 
-		flags_test  |= page_allocated;
+		if (!((flags_set | flags_clear) & page_fault_notification))
+		{
+			flags_test |= page_allocated;
+		}
+		else
+		{
+			flags_test &= ~page_allocated;
+		}
+
 		flags_set   &= ~flags_both;
 		flags_clear &= ~flags_both;
 
 		for (u32 i = addr / 4096; i < addr / 4096 + size / 4096; i++)
 		{
-			if ((g_pages[i].flags & flags_test) != (flags_test | page_allocated))
+			if ((g_pages[i].flags & flags_test) != flags_test)
 			{
 				return false;
 			}
@@ -526,14 +534,40 @@ namespace vm
 		}
 
 		// Always check this flag
-		flags |= page_allocated;
+		auto test_flags = (flags | page_allocated) & ~page_fault_notification;
 
-		for (u32 i = addr / 4096, max = (addr + size - 1) / 4096; i <= max; i++)
+		for (u32 i = addr / 4096, max = (addr + size - 1) / 4096; i <= max;)
 		{
-			if (UNLIKELY((g_pages[i].flags & flags) != flags))
+			const auto pflags = +g_pages[i].flags;
+
+			if (UNLIKELY((pflags & test_flags) != test_flags))
 			{
-				return false;
+				// If this flag is set and passed by 'flags', ignore failure
+				if (!((pflags & flags) & page_fault_notification))
+				{
+					return false;
+				}
+
+				i++;
+				continue;
 			}
+
+			// Optimization
+			if (const auto page_size = pflags & (page_1m_size | page_64k_size))
+			{
+				if (page_size & page_1m_size)
+				{
+					i = ::align<u32>(i + 1, 0x100000 / 4096);
+				}
+				else // if (page_size & page_64k_size)
+				{
+					i = ::align<u32>(i + 1, 0x10000 / 4096);
+				}
+
+				continue;
+			}
+
+			i++;
 		}
 
 		return true;
@@ -1092,7 +1126,7 @@ namespace vm
 			return true;
 		}
 
-		if (vm::check_addr(addr, size, is_write ? page_writable : page_readable))
+		if (vm::check_addr(addr, size, page_fault_notification | (is_write ? page_writable : page_readable)))
 		{
 			void* src = vm::g_sudo_addr + addr;
 			void* dst = ptr;
