@@ -1013,13 +1013,9 @@ std::string spu_thread::dump() const
 {
 	std::string ret = cpu_thread::dump();
 
-	if (group)
-	{
-		fmt::append(ret, "\nGroup ID: 0x%x", group->id);
-	}
-
 	fmt::append(ret, "\nBlock Weight: %u (Retreats: %u)", block_counter, block_failure);
 	fmt::append(ret, "\n[%s]", ch_mfc_cmd);
+	fmt::append(ret, "\nLocal Storage: 0x%08x..0x%08x", offset, offset + 0x3ffff);
 	fmt::append(ret, "\nTag Mask: 0x%08x", ch_tag_mask);
 	fmt::append(ret, "\nMFC Stall: 0x%08x", ch_stall_mask);
 	fmt::append(ret, "\nMFC Queue Size: %u", mfc_size);
@@ -1059,6 +1055,7 @@ void spu_thread::cpu_init()
 	mfc_fence = 0;
 	ch_tag_upd = 0;
 	ch_tag_mask = 0;
+	mfc_prxy_mask = 0;
 	ch_tag_stat.data.raw() = {};
 	ch_stall_mask = 0;
 	ch_stall_stat.data.raw() = {};
@@ -1090,6 +1087,7 @@ void spu_thread::cpu_init()
 	run_ctrl.raw() = 0;
 	status.raw() = 0;
 	npc.raw() = 0;
+	skip_npc_set = false;
 
 	int_ctrl[0].clear();
 	int_ctrl[1].clear();
@@ -1103,7 +1101,14 @@ void spu_thread::cpu_stop()
 	if (!group && offset >= RAW_SPU_BASE_ADDR)
 	{
 		// Save next PC and current SPU Interrupt Status
-		npc = pc | (interrupts_enabled);
+		if (skip_npc_set)
+		{
+			skip_npc_set = false;
+		}
+		else
+		{
+			npc = pc | interrupts_enabled;
+		}
 	}
 	else if (group && is_stopped())
 	{
@@ -1143,6 +1148,8 @@ void spu_thread::cpu_task()
 	// Get next PC and SPU Interrupt status
 	pc = npc.exchange(0);
 
+	skip_npc_set = false;
+
 	set_interrupt_status((pc & 1) != 0);
 
 	pc &= 0x3fffc;
@@ -1163,6 +1170,13 @@ void spu_thread::cpu_task()
 			{
 				if (check_state())
 					break;
+			}
+
+			if (_ref<u32>(pc) == 0x0)
+			{
+				if (spu_thread::stop_and_signal(0x0))
+					pc += 4;
+				continue;
 			}
 
 			spu_runtime::g_gateway(*this, vm::_ptr<u8>(offset), nullptr);
@@ -2788,6 +2802,9 @@ bool spu_thread::stop_and_signal(u32 code)
 
 	if (offset >= RAW_SPU_BASE_ADDR)
 	{
+		// Save next PC and current SPU Interrupt Status
+		npc = (pc + 4) | (interrupts_enabled);
+		skip_npc_set = true;
 		state += cpu_flag::stop + cpu_flag::wait;
 		status.atomic_op([code](u32& status)
 		{
@@ -2874,7 +2891,7 @@ bool spu_thread::stop_and_signal(u32 code)
 
 		LOG_TRACE(SPU, "sys_spu_thread_receive_event(spuq=0x%x)", spuq);
 
-		if (group->type & SYS_SPU_THREAD_GROUP_TYPE_EXCLUSIVE_NON_CONTEXT) // this check may be inaccurate
+		if (!group->has_scheduler_context)
 		{
 			return ch_in_mbox.set_values(1, CELL_EINVAL), true;
 		}

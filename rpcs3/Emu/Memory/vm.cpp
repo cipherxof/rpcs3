@@ -92,6 +92,7 @@ namespace vm
 		}
 	}
 
+	template <bool use_mutex>
 	void passive_lock(cpu_thread& cpu)
 	{
 		if (UNLIKELY(g_tls_locked && *g_tls_locked == &cpu))
@@ -99,23 +100,34 @@ namespace vm
 			return;
 		}
 
-		if (LIKELY(g_mutex.is_lockable()))
+		while (true)
 		{
-			// Optimistic path (hope that mutex is not exclusively locked)
-			_register_lock(&cpu);
-
 			if (LIKELY(g_mutex.is_lockable()))
 			{
-				return;
+				// Optimistic path (hope that mutex is not exclusively locked)
+				_register_lock(&cpu);
+
+				if (LIKELY(g_mutex.is_lockable()))
+				{
+					return;
+				}
+
+				passive_unlock(cpu);
 			}
 
-			passive_unlock(cpu);
+			if constexpr (use_mutex)
+			{
+				break;
+			}
+
+			std::this_thread::yield();
 		}
 
 		::reader_lock lock(g_mutex);
 		_register_lock(&cpu);
 	}
 
+	template <bool use_mutex>
 	atomic_t<u64>* passive_lock(const u32 addr, const u32 end)
 	{
 		static const auto test_addr = [](const u32 target, const u32 addr, const u32 end)
@@ -125,17 +137,27 @@ namespace vm
 
 		atomic_t<u64>* _ret;
 
-		if (LIKELY(test_addr(g_addr_lock.load(), addr, end)))
+		while (true)
 		{
-			// Optimistic path (hope that address range is not locked)
-			_ret = _register_range_lock(u64{end} << 32 | addr);
-
 			if (LIKELY(test_addr(g_addr_lock.load(), addr, end)))
 			{
-				return _ret;
+				// Optimistic path (hope that address range is not locked)
+				_ret = _register_range_lock(u64{end} << 32 | addr);
+
+				if (LIKELY(test_addr(g_addr_lock.load(), addr, end)))
+				{
+					return _ret;
+				}
+
+				*_ret = 0;
 			}
 
-			*_ret = 0;
+			if constexpr (use_mutex)
+			{
+				break;
+			}
+
+			std::this_thread::yield();
 		}
 
 		{
@@ -392,13 +414,21 @@ namespace vm
 
 		const u8 flags_both = flags_set & flags_clear;
 
-		flags_test  |= page_allocated;
+		if (!((flags_set | flags_clear) & page_fault_notification))
+		{
+			flags_test |= page_allocated;
+		}
+		else
+		{
+			flags_test &= ~page_allocated;
+		}
+
 		flags_set   &= ~flags_both;
 		flags_clear &= ~flags_both;
 
 		for (u32 i = addr / 4096; i < addr / 4096 + size / 4096; i++)
 		{
-			if ((g_pages[i].flags & flags_test) != (flags_test | page_allocated))
+			if ((g_pages[i].flags & flags_test) != flags_test)
 			{
 				return false;
 			}
@@ -514,6 +544,11 @@ namespace vm
 
 	bool check_addr(u32 addr, u32 size, u8 flags)
 	{
+		if (size == 0)
+		{
+			return true;
+		}
+
 		// Overflow checking
 		if (addr + size < addr && (addr + size) != 0)
 		{
@@ -521,14 +556,40 @@ namespace vm
 		}
 
 		// Always check this flag
-		flags |= page_allocated;
+		auto test_flags = (flags | page_allocated) & ~page_fault_notification;
 
-		for (u32 i = addr / 4096, max = (addr + size - 1) / 4096; i <= max; i++)
+		for (u32 i = addr / 4096, max = (addr + size - 1) / 4096; i <= max;)
 		{
-			if (UNLIKELY((g_pages[i].flags & flags) != flags))
+			const auto pflags = +g_pages[i].flags;
+
+			if (UNLIKELY((pflags & test_flags) != test_flags))
 			{
-				return false;
+				// If this flag is set and passed by 'flags', ignore failure
+				if (!((pflags & flags) & page_fault_notification))
+				{
+					return false;
+				}
+
+				i++;
+				continue;
 			}
+
+			// Optimization
+			if (const auto page_size = pflags & (page_1m_size | page_64k_size))
+			{
+				if (page_size & page_1m_size)
+				{
+					i = ::align<u32>(i + 1, 0x100000 / 4096);
+				}
+				else // if (page_size & page_64k_size)
+				{
+					i = ::align<u32>(i + 1, 0x10000 / 4096);
+				}
+
+				continue;
+			}
+
+			i++;
 		}
 
 		return true;
@@ -1087,7 +1148,7 @@ namespace vm
 			return true;
 		}
 
-		if (vm::check_addr(addr, size, is_write ? page_writable : page_readable))
+		if (vm::check_addr(addr, size, page_fault_notification | (is_write ? page_writable : page_readable)))
 		{
 			void* src = vm::g_sudo_addr + addr;
 			void* dst = ptr;
@@ -1145,6 +1206,11 @@ namespace vm
 		utils::memory_decommit(g_stat_addr, 0x100000000);
 		utils::memory_decommit(g_reservations, 0x100000000);
 	}
+
+	template void passive_lock<true>(cpu_thread& cpu);
+	template void passive_lock<false>(cpu_thread& cpu);
+	template atomic_t<u64>* passive_lock<true>(const u32, const u32);
+	template atomic_t<u64>* passive_lock<false>(const u32, const u32);
 }
 
 void fmt_class_string<vm::_ptr_base<const void, u32>>::format(std::string& out, u64 arg)

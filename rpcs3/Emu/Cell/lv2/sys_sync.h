@@ -171,13 +171,13 @@ public:
 	static void cleanup();
 
 	template <typename T, typename F>
-	static error_code create(u32 pshared, u64 ipc_key, s32 flags, F&& make)
+	static error_code create(u32 pshared, u64 ipc_key, s32 flags, F&& make, bool key_not_zero = true)
 	{
 		switch (pshared)
 		{
 		case SYS_SYNC_PROCESS_SHARED:
 		{
-			if (ipc_key == 0)
+			if (key_not_zero && ipc_key == 0)
 			{
 				return CELL_EINVAL;
 			}
@@ -253,13 +253,10 @@ public:
 	template<bool is_usleep = false>
 	static bool wait_timeout(u64 usec, cpu_thread* const cpu = {})
 	{
-		static_assert(UINT64_MAX / cond_variable::max_timeout >= g_cfg.core.clocks_scale.max, "timeout may overflow during scaling");
+		static_assert(UINT64_MAX / cond_variable::max_timeout >= 100, "max timeout is not valid for scaling");
 
-		// Clamp to max timeout accepted
-		const u64 max_usec = cond_variable::max_timeout * 100 / g_cfg.core.clocks_scale.max;
-
-		// Now scale the result
-		usec = (std::min<u64>(usec, max_usec) * g_cfg.core.clocks_scale) / 100;
+		// Clamp and scale the result
+		usec = std::min<u64>(std::min<u64>(usec, UINT64_MAX / 100) * 100 / g_cfg.core.clocks_scale, cond_variable::max_timeout);
 
 		extern u64 get_system_time();
 
