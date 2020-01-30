@@ -190,7 +190,7 @@ std::size_t patch_engine::apply_with_ls_check(const std::string& name, u8* dst, 
 	{
 		auto ptr = dst + (p.offset - ls_addr);
 
-		if(p.offset < ls_addr || p.offset > (ls_addr + filesz))
+		if(p.offset < ls_addr || p.offset >= (ls_addr + filesz))
 		{
 			// This patch is out of range for this segment
 			rejected++;

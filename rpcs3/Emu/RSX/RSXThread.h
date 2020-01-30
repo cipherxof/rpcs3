@@ -745,7 +745,7 @@ namespace rsx
 		void run_FIFO();
 
 	public:
-		virtual void clear_surface(u32 arg) {};
+		virtual void clear_surface(u32 /*arg*/) {};
 		virtual void begin();
 		virtual void end();
 		virtual void execute_nop_draw();
@@ -760,7 +760,7 @@ namespace rsx
 		virtual void notify_tile_unbound(u32 /*tile*/) {}
 
 		// control
-		virtual void renderctl(u32 request_code, void* args) {}
+		virtual void renderctl(u32 /*request_code*/, void* /*args*/) {}
 
 		// zcull
 		void notify_zcull_info_changed();

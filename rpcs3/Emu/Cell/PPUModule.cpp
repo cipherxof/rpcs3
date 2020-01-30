@@ -1156,7 +1156,7 @@ void ppu_load_exec(const ppu_exec_object& elf)
 	for (u32 i = _main->segs[0].addr; i < (_main->segs[0].addr + _main->segs[0].size); i += 4)
 	{
 		uchar* elf_header = vm::_ptr<u8>(i);
-		const spu_exec_object obj(fs::file(vm::base(vm::cast(i, HERE)), u32(0 - i)));
+		const spu_exec_object obj(fs::file(vm::base(vm::cast(i, HERE)), (_main->segs[0].addr + _main->segs[0].size) - i));
 
 		if (obj != elf_error::ok)
 		{
@@ -1193,7 +1193,7 @@ void ppu_load_exec(const ppu_exec_object& elf)
 				sha1_update(&sha2, (elf_header + prog.p_offset), prog.p_filesz);
 
 				// We assume that the string SPUNAME exists 0x14 bytes into the NOTE segment
-				const std::string spu_name = reinterpret_cast<const char*>(elf_header + prog.p_offset + 0x14);
+				const auto spu_name = reinterpret_cast<const char*>(elf_header + prog.p_offset + 0x14);
 				fmt::append(dump, "\n\tSPUNAME: '%s'", spu_name);
 			}
 		}
@@ -1241,7 +1241,7 @@ void ppu_load_exec(const ppu_exec_object& elf)
 	// Read control flags (0 if doesn't exist)
 	g_ps3_process_info.ctrl_flags1 = 0;
 
-	if (bool not_found = true)
+	if (bool not_found = g_ps3_process_info.self_info.valid)
 	{
 		for (const auto& ctrl : g_ps3_process_info.self_info.ctrl_info)
 		{
@@ -1257,6 +1257,9 @@ void ppu_load_exec(const ppu_exec_object& elf)
 				g_ps3_process_info.ctrl_flags1 |= ctrl.control_flags.ctrl_flag1;
 			}
 		}
+
+		LOG_NOTICE(LOADER, "SELF header information found: ctrl_flags1=0x%x, authid=0x%llx", 
+			g_ps3_process_info.ctrl_flags1, g_ps3_process_info.self_info.app_info.authid);
 	}
 
 	// Load other programs

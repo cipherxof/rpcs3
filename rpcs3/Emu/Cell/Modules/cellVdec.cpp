@@ -712,8 +712,11 @@ error_code cellVdecGetPicture(u32 handle, vm::cptr<CellVdecPicFormat> format, vm
 
 		switch (frame->format)
 		{
-		case AV_PIX_FMT_YUV420P: in_f = alpha_plane ? AV_PIX_FMT_YUVA420P : AV_PIX_FMT_YUV420P; break;
-
+		case AV_PIX_FMT_YUVJ420P:
+			cellVdec.error("cellVdecGetPicture(): experimental AVPixelFormat (%d). This may cause suboptimal video quality.", frame->format);
+		case AV_PIX_FMT_YUV420P:
+			in_f = alpha_plane ? AV_PIX_FMT_YUVA420P : static_cast<AVPixelFormat>(frame->format);
+			break;
 		default:
 		{
 			fmt::throw_exception("Unknown format (%d)" HERE, frame->format);
@@ -986,11 +989,8 @@ error_code cellVdecSetFrameRate(u32 handle, CellVdecFrameRate frameRateCode)
 
 	const auto vdec = idm::get<vdec_context>(handle);
 
-	// TODO: is the frameRateCode check correct?
-	//       rlwinm    r0, r4, 0,24,28
-	//       cmpwi     cr7, r0, 0x80
-	//       bne       cr7, return CELL_VDEC_ERROR_ARG
-	if (!vdec || frameRateCode < CELL_VDEC_FRC_24000DIV1001 || frameRateCode > CELL_VDEC_FRC_60)
+	// 0x80 seems like a common prefix
+	if (!vdec || (frameRateCode & 0xf8) != 0x80)
 	{
 		return CELL_VDEC_ERROR_ARG;
 	}
@@ -1000,7 +1000,7 @@ error_code cellVdecSetFrameRate(u32 handle, CellVdecFrameRate frameRateCode)
 		return { CELL_VDEC_ERROR_SEQ, +vdec->current_state };
 	}
 
-	vdec->in_cmd.push(frameRateCode);
+	vdec->in_cmd.push(CellVdecFrameRate{ frameRateCode & 0x87 });
 	return CELL_OK;
 }
 
