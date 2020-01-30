@@ -188,8 +188,6 @@ error_code sys_rsx_context_allocate(vm::ptr<u32> context_id, vm::ptr<u64> lpar_d
 	dmaControl.put = 0;
 	dmaControl.ref = 0; // Set later to -1 by cellGcmSys
 
-	memset(&RSXIOMem, 0xFF, sizeof(RSXIOMem));
-
 	if (false/*system_mode == CELL_GCM_SYSTEM_MODE_IOMAP_512MB*/)
 		rsx::get_current_renderer()->main_mem_size = 0x20000000; //512MB
 	else
@@ -251,8 +249,10 @@ error_code sys_rsx_context_iomap(u32 context_id, u32 io, u32 ea, u32 size, u64 f
 {
 	sys_rsx.warning("sys_rsx_context_iomap(context_id=0x%x, io=0x%x, ea=0x%x, size=0x%x, flags=0x%llx)", context_id, io, ea, size, flags);
 
+	const auto render = rsx::get_current_renderer();
+
 	if (!size || io & 0xFFFFF || ea + u64{size} > rsx::constants::local_mem_base || ea & 0xFFFFF || size & 0xFFFFF ||
-		context_id != 0x55555555 || rsx::get_current_renderer()->main_mem_size < io + u64{size})
+		context_id != 0x55555555 || render->main_mem_size < io + u64{size})
 	{
 		return CELL_EINVAL;
 	}
@@ -273,9 +273,9 @@ error_code sys_rsx_context_iomap(u32 context_id, u32 io, u32 ea, u32 size, u64 f
 
 	for (u32 i = 0; i < size; i++)
 	{
-		const u32 prev_ea = std::exchange(RSXIOMem.ea[io + i].raw(), ea + i);
-		if (prev_ea < 0xC00) RSXIOMem.io[prev_ea].raw() = 0xFFFF; // Clear previous mapping if exists
-		RSXIOMem.io[ea + i].raw() = io + i;
+		const u32 prev_ea = std::exchange(render->iomap_table.ea[io + i], (ea + i) << 20);
+		if (prev_ea + 1) render->iomap_table.io[prev_ea >> 20] = -1; // Clear previous mapping if exists
+		render->iomap_table.io[ea + i] = (io + i) << 20;
 	}
 
 	return CELL_OK;
@@ -291,8 +291,10 @@ error_code sys_rsx_context_iounmap(u32 context_id, u32 io, u32 size)
 {
 	sys_rsx.warning("sys_rsx_context_iounmap(context_id=0x%x, io=0x%x, size=0x%x)", context_id, io, size);
 
+	const auto render = rsx::get_current_renderer();
+
 	if (!size || size & 0xFFFFF || io & 0xFFFFF || context_id != 0x55555555 ||
-			rsx::get_current_renderer()->main_mem_size < io + u64{size})
+			render->main_mem_size < io + u64{size})
 	{
 		return CELL_EINVAL;
 	}
@@ -305,8 +307,8 @@ error_code sys_rsx_context_iounmap(u32 context_id, u32 io, u32 size)
 
 	while (io < end)
 	{
-		const u32 ea_entry = std::exchange(RSXIOMem.ea[io++].raw(), 0xFFFF);
-		if (ea_entry < 0xC00) RSXIOMem.io[ea_entry].raw() = 0xFFFF;
+		const u32 ea_entry = std::exchange(render->iomap_table.ea[io++], -1);
+		if (ea_entry + 1) render->iomap_table.io[ea_entry >> 20] = -1;
 	}
 
 	return CELL_OK;
