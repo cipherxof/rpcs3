@@ -1120,6 +1120,12 @@ bool handle_access_violation(u32 addr, bool is_writing, x64_context* context)
 			{
 				cpu->state += cpu_flag::dbg_pause;
 
+				if (cpu->state & cpu_flag::memory)
+				{
+					vm::passive_lock<false>(*cpu);
+					cpu->state -= cpu_flag::memory;
+				}
+
 				if (cpu->test_stopped())
 				{
 					std::terminate();
@@ -1132,16 +1138,20 @@ bool handle_access_violation(u32 addr, bool is_writing, x64_context* context)
 		if (handled)
 		{
 			g_tls_fault_rsx++;
-			if (cpu && cpu->test_stopped())
+
+			if (cpu && cpu->state & cpu_flag::memory)
 			{
-				//
+				vm::passive_lock<false>(*cpu);
+				cpu->state -= cpu_flag::memory;
 			}
 
 			return true;
 		}
 
-		if (cpu && cpu->test_stopped())
+		if (cpu && cpu->state & cpu_flag::memory)
 		{
+			vm::passive_lock<false>(*cpu);
+			cpu->state -= cpu_flag::memory;
 		}
 	}
 
@@ -1279,9 +1289,10 @@ bool handle_access_violation(u32 addr, bool is_writing, x64_context* context)
 
 	if (vm::check_addr(addr, std::max(1u, ::narrow<u32>(d_size)), is_writing ? vm::page_writable : vm::page_readable))
 	{
-		if (cpu && cpu->test_stopped())
+		if (cpu && cpu->state & cpu_flag::memory)
 		{
-			//
+			vm::passive_lock<false>(*cpu);
+			cpu->state -= cpu_flag::memory;
 		}
 
 		return true;
@@ -1396,6 +1407,12 @@ bool handle_access_violation(u32 addr, bool is_writing, x64_context* context)
 
 				// Timeout in case the emulator is stopping
 				pf_events->cond.wait(pf_lock, 10000);
+			}
+
+			if (cpu && cpu->state & cpu_flag::memory)
+			{
+				vm::passive_lock<false>(*cpu);
+				cpu->state -= cpu_flag::memory;
 			}
 
 			// Reschedule

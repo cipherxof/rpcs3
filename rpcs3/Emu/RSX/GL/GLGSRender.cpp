@@ -1504,7 +1504,6 @@ bool GLGSRender::on_access_violation(u32 address, bool is_writing)
 	{
 		auto &task = post_flush_request(address, result);
 
-		vm::temporary_unlock();
 		task.producer_wait();
 	}
 
