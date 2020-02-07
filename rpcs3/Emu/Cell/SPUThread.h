@@ -9,6 +9,8 @@
 
 #include <map>
 
+LOG_CHANNEL(spu_log, "SPU");
+
 struct lv2_event_queue;
 struct lv2_spu_group;
 struct lv2_int_tag;
@@ -169,7 +171,7 @@ public:
 	{
 		const u64 old = data.fetch_op([=](u64& data)
 		{
-			if (UNLIKELY(data & bit_count))
+			if (data & bit_count) [[unlikely]]
 			{
 				data |= bit_wait;
 			}
@@ -216,7 +218,7 @@ public:
 	{
 		const u64 old = data.fetch_op([&](u64& data)
 		{
-			if (LIKELY(data & bit_count))
+			if (data & bit_count) [[likely]]
 			{
 				out = static_cast<u32>(data);
 				data = 0;
@@ -575,14 +577,18 @@ public:
 	atomic_t<u32> ch_event_stat;
 	atomic_t<bool> interrupts_enabled;
 
-	bool skip_npc_set = false;
-
 	u64 ch_dec_start_timestamp; // timestamp of writing decrementer value
 	u32 ch_dec_value; // written decrementer value
 
 	atomic_t<u32> run_ctrl; // SPU Run Control register (only provided to get latest data written)
-	atomic_t<u32> status; // SPU Status register
-	atomic_t<u32> npc; // SPU Next Program Counter register
+
+	struct alignas(8) status_npc_sync_var
+	{
+		u32 status; // SPU Status register
+		u32 npc; // SPU Next Program Counter register
+	};
+
+	atomic_t<status_npc_sync_var> status_npc; 
 
 	std::array<spu_int_ctrl_t, 3> int_ctrl; // SPU Class 0, 1, 2 Interrupt Management
 
@@ -650,7 +656,7 @@ public:
 
 	static u32 find_raw_spu(u32 id)
 	{
-		if (LIKELY(id < std::size(g_raw_spu_id)))
+		if (id < std::size(g_raw_spu_id)) [[likely]]
 		{
 			return g_raw_spu_id[id];
 		}

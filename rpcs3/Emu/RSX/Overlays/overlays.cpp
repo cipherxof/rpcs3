@@ -2,6 +2,8 @@
 #include "overlays.h"
 #include "../GSRender.h"
 
+LOG_CHANNEL(overlays);
+
 static auto s_ascii_lowering_map = []()
 {
 	std::unordered_map<u32, u8> _map;
@@ -81,7 +83,7 @@ std::string utf8_to_ascii8(const std::string& utf8_string)
 		if ((index + extra_bytes) > end)
 		{
 			// Malformed string, abort
-			LOG_ERROR(GENERAL, "Failed to decode supossedly malformed utf8 string '%s'", utf8_string);
+			overlays.error("Failed to decode supossedly malformed utf8 string '%s'", utf8_string);
 			break;
 		}
 
@@ -209,7 +211,7 @@ namespace rsx
 				{
 					if (++pad_index >= CELL_PAD_MAX_PORT_NUM)
 					{
-						LOG_FATAL(RSX, "The native overlay cannot handle more than 7 pads! Current number of pads: %d", pad_index + 1);
+						rsx_log.fatal("The native overlay cannot handle more than 7 pads! Current number of pads: %d", pad_index + 1);
 						continue;
 					}
 
@@ -310,7 +312,31 @@ namespace rsx
 		void user_interface::close(bool use_callback)
 		{
 			// Force unload
-			exit = true;
+			exit.release(true);
+			{
+				reader_lock lock(m_threadpool_mutex);
+				for (auto& worker : m_workers)
+				{
+					if (std::this_thread::get_id() != worker.get_id() && worker.joinable())
+					{
+						worker.join();
+					}
+					else
+					{
+						worker.detach();
+					}
+				}
+			}
+
+			pad::SetIntercepted(false);
+
+			if (on_close && use_callback)
+			{
+				g_last_user_response = return_code;
+				on_close(return_code);
+			}
+
+			// NOTE: Object removal should be the last step
 			if (auto manager = g_fxo->get<display_manager>())
 			{
 				if (auto dlg = manager->get<rsx::overlays::message_dialog>())
@@ -320,14 +346,6 @@ namespace rsx
 				}
 
 				manager->remove(uid);
-			}
-
-			pad::SetIntercepted(false);
-
-			if (on_close && use_callback)
-			{
-				g_last_user_response = return_code;
-				on_close(return_code);
 			}
 		}
 

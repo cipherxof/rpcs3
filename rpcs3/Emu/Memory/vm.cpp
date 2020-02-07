@@ -17,6 +17,8 @@
 #include <thread>
 #include <deque>
 
+LOG_CHANNEL(vm_log, "VM");
+
 namespace vm
 {
 	static u8* memory_reserve_4GiB(void* _addr, u64 size = 0x100000000)
@@ -95,19 +97,19 @@ namespace vm
 	template <bool use_mutex>
 	void passive_lock(cpu_thread& cpu)
 	{
-		if (UNLIKELY(g_tls_locked && *g_tls_locked == &cpu))
+		if (g_tls_locked && *g_tls_locked == &cpu) [[unlikely]]
 		{
 			return;
 		}
 
 		while (true)
 		{
-			if (LIKELY(g_mutex.is_lockable()))
+			if (g_mutex.is_lockable()) [[likely]]
 			{
 				// Optimistic path (hope that mutex is not exclusively locked)
 				_register_lock(&cpu);
 
-				if (LIKELY(g_mutex.is_lockable()))
+				if (g_mutex.is_lockable()) [[likely]]
 				{
 					return;
 				}
@@ -139,12 +141,12 @@ namespace vm
 
 		while (true)
 		{
-			if (LIKELY(test_addr(g_addr_lock.load(), addr, end)))
+			if (test_addr(g_addr_lock.load(), addr, end)) [[likely]]
 			{
 				// Optimistic path (hope that address range is not locked)
 				_ret = _register_range_lock(u64{end} << 32 | addr);
 
-				if (LIKELY(test_addr(g_addr_lock.load(), addr, end)))
+				if (test_addr(g_addr_lock.load(), addr, end)) [[likely]]
 				{
 					return _ret;
 				}
@@ -324,7 +326,7 @@ namespace vm
 	{
 		for (u64 i = 0;; i++)
 		{
-			if (LIKELY(!res.bts(0)))
+			if (!res.bts(0)) [[likely]]
 			{
 				break;
 			}
@@ -562,7 +564,7 @@ namespace vm
 		{
 			const auto pflags = +g_pages[i].flags;
 
-			if (UNLIKELY((pflags & test_flags) != test_flags))
+			if ((pflags & test_flags) != test_flags) [[unlikely]]
 			{
 				// If this flag is set and passed by 'flags', ignore failure
 				if (!((pflags & flags) & page_fault_notification))
@@ -637,13 +639,13 @@ namespace vm
 
 		if (!block)
 		{
-			LOG_ERROR(MEMORY, "vm::dealloc(): invalid memory location (%u, addr=0x%x)\n", +location, addr);
+			vm_log.error("vm::dealloc(): invalid memory location (%u, addr=0x%x)\n", +location, addr);
 			return;
 		}
 
 		if (!block->dealloc(addr))
 		{
-			LOG_ERROR(MEMORY, "vm::dealloc(): deallocation failed (addr=0x%x)\n", addr);
+			vm_log.error("vm::dealloc(): deallocation failed (addr=0x%x)\n", addr);
 			return;
 		}
 	}
@@ -1141,43 +1143,85 @@ namespace vm
 
 	bool try_access(u32 addr, void* ptr, u32 size, bool is_write)
 	{
-		vm::reader_lock lock;
-
 		if (size == 0)
 		{
 			return true;
 		}
 
-		if (vm::check_addr(addr, size, page_fault_notification | (is_write ? page_writable : page_readable)))
+		for (bool touch_mem = false;;)
 		{
-			void* src = vm::g_sudo_addr + addr;
-			void* dst = ptr;
-
-			if (is_write)
-				std::swap(src, dst);
-
-			if (size <= 16 && utils::popcnt32(size) == 1 && (addr & (size - 1)) == 0)
+			if (touch_mem)
 			{
-				if (is_write)
+				decltype(get(vm::any, 0)) block;
+
+				for (u32 i = addr, end = addr + size - 1;;)
 				{
-					switch (size)
+					// Ensures the block exists while touching the memory
+					if ((i % 0x10000000) == 0)
 					{
-					case 1: atomic_storage<u8>::release(*static_cast<u8*>(dst), *static_cast<u8*>(src)); break;
-					case 2: atomic_storage<u16>::release(*static_cast<u16*>(dst), *static_cast<u16*>(src)); break;
-					case 4: atomic_storage<u32>::release(*static_cast<u32*>(dst), *static_cast<u32*>(src)); break;
-					case 8: atomic_storage<u64>::release(*static_cast<u64*>(dst), *static_cast<u64*>(src)); break;
-					case 16: _mm_store_si128(static_cast<__m128i*>(dst), _mm_loadu_si128(static_cast<__m128i*>(src))); break;
+						block = get(vm::any, i);
 					}
 
-					return true;
+					// Touch memory
+					if (is_write)
+					{
+						// Write the expected value, avoid reads
+						vm::_ref<atomic_t<uchar>>(i).release(static_cast<uchar*>(ptr)[i - addr]); 
+					}
+					else
+					{
+						+vm::_ref<const volatile char>(i);
+					}
+
+					const u32 next = ::align(i + 1, 4096);
+
+					if (next < i || next > end)
+					{
+						break;
+					}
+
+					i = next;
 				}
 			}
 
-			std::memcpy(dst, src, size);
-			return true;
-		}
+			vm::reader_lock lock;
 
-		return false;
+			if (vm::check_addr(addr, size, (is_write ? page_writable : page_readable)))
+			{
+				void* src = vm::g_sudo_addr + addr;
+				void* dst = ptr;
+
+				if (is_write)
+					std::swap(src, dst);
+
+				if (size <= 16 && utils::popcnt32(size) == 1 && (addr & (size - 1)) == 0)
+				{
+					if (is_write)
+					{
+						switch (size)
+						{
+						case 1: atomic_storage<u8>::release(*static_cast<u8*>(dst), *static_cast<u8*>(src)); break;
+						case 2: atomic_storage<u16>::release(*static_cast<u16*>(dst), *static_cast<u16*>(src)); break;
+						case 4: atomic_storage<u32>::release(*static_cast<u32*>(dst), *static_cast<u32*>(src)); break;
+						case 8: atomic_storage<u64>::release(*static_cast<u64*>(dst), *static_cast<u64*>(src)); break;
+						case 16: _mm_store_si128(static_cast<__m128i*>(dst), _mm_loadu_si128(static_cast<__m128i*>(src))); break;
+						}
+
+						return true;
+					}
+				}
+
+				std::memcpy(dst, src, size);
+				return true;
+			}
+
+			touch_mem = vm::check_addr(addr, size, page_fault_notification | (is_write ? page_writable : page_readable));
+
+			if (!touch_mem)
+			{
+				return false;
+			}
+		}
 	}
 
 	inline namespace ps3_
@@ -1223,22 +1267,22 @@ void fmt_class_string<vm::_ptr_base<const char, u32>>::format(std::string& out, 
 	// Special case (may be allowed for some arguments)
 	if (arg == 0)
 	{
-		out += u8"«NULL»";
+		out += reinterpret_cast<const char*>(u8"«NULL»");
 		return;
 	}
 
 	// Filter certainly invalid addresses (TODO)
 	if (arg < 0x10000 || arg >= 0xf0000000)
 	{
-		out += u8"«INVALID_ADDRESS:";
+		out += reinterpret_cast<const char*>(u8"«INVALID_ADDRESS:");
 		fmt_class_string<u32>::format(out, arg);
-		out += u8"»";
+		out += reinterpret_cast<const char*>(u8"»");
 		return;
 	}
 
 	const auto start = out.size();
 
-	out += u8"“";
+	out += reinterpret_cast<const char*>(u8"“");
 
 	for (vm::_ptr_base<const volatile char, u32> ptr = vm::cast(arg);; ptr++)
 	{
@@ -1246,9 +1290,9 @@ void fmt_class_string<vm::_ptr_base<const char, u32>>::format(std::string& out, 
 		{
 			// TODO: optimize checks
 			out.resize(start);
-			out += u8"«INVALID_ADDRESS:";
+			out += reinterpret_cast<const char*>(u8"«INVALID_ADDRESS:");
 			fmt_class_string<u32>::format(out, arg);
-			out += u8"»";
+			out += reinterpret_cast<const char*>(u8"»");
 			return;
 		}
 
@@ -1262,5 +1306,5 @@ void fmt_class_string<vm::_ptr_base<const char, u32>>::format(std::string& out, 
 		}
 	}
 
-	out += u8"”";
+	out += reinterpret_cast<const char*>(u8"”");
 }

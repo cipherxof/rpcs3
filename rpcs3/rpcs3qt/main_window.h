@@ -74,6 +74,7 @@ public:
 	QIcon GetAppIcon();
 
 Q_SIGNALS:
+	void RequestLanguageChange(const QString& language);
 	void RequestGlobalStylesheetChange(const QString& sheetFilePath);
 	void RequestTrophyManagerRepaint();
 	void NotifyEmuSettingsChange();
@@ -86,6 +87,7 @@ public Q_SLOTS:
 	void OnEmuReady();
 
 	void RepaintGui();
+	void RetranslateUI(const QStringList& language_codes, const QString& language);
 
 private Q_SLOTS:
 	void OnPlayOrPause();
@@ -117,8 +119,12 @@ private:
 	void CreateDockWindows();
 	void EnableMenus(bool enabled);
 	void ShowTitleBars(bool show);
+
 	void InstallPackages(QStringList file_paths = QStringList(), bool show_confirm = true);
+	void HandlePackageInstallation(QStringList file_paths = QStringList());
+
 	void InstallPup(QString filePath = "");
+	void HandlePupInstallation(QString file_path = "");
 
 	int IsValidFile(const QMimeData& md, QStringList* dropPaths = nullptr);
 	void AddGamesFromDir(const QString& path);
@@ -126,6 +132,9 @@ private:
 	QAction* CreateRecentAction(const q_string_pair& entry, const uint& sc_idx);
 	void BootRecentAction(const QAction* act);
 	void AddRecentAction(const q_string_pair& entry);
+
+	void UpdateLanguageActions(const QStringList& language_codes, const QString& language);
+
 	void RemoveDiskCache();
 
 	q_pair_list m_rg_entries;

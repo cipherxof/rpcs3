@@ -67,7 +67,7 @@ namespace rsx
 
 					num_layers = std::max(num_layers, u32(_cell.outputs.size()));
 
-					if (LIKELY(props.num_cell_hz == 1))
+					if (props.num_cell_hz == 1) [[likely]]
 					{
 						_cell.flags = border_flags::default_cell;
 					}
@@ -191,7 +191,7 @@ namespace rsx
 			{
 				if (auto error = run_input_loop())
 				{
-					LOG_ERROR(RSX, "Osk input loop exited with error code=%d", error);
+					rsx_log.error("Osk input loop exited with error code=%d", error);
 				}
 			});
 		}

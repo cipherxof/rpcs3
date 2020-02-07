@@ -47,6 +47,7 @@ public:
 		SPUBlockSize,
 		SPUCache,
 		DebugConsoleMode,
+		SilenceAllLogs,
 		MaxSPURSThreads,
 		SleepTimersAccuracy,
 		ClocksScale,
@@ -412,6 +413,7 @@ private:
 		{ ShowWelcomeScreen,         { "Miscellaneous", "Show Welcome Screen"}},
 		{ UseNativeInterface,        { "Miscellaneous", "Use native user interface"}},
 		{ ShowShaderCompilationHint, { "Miscellaneous", "Show shader compilation hint"}},
+		{ SilenceAllLogs,            { "Miscellaneous", "Silence All Logs" }},
 
 		// Networking
 		{ ConnectionStatus, { "Net", "Connection status"}},
