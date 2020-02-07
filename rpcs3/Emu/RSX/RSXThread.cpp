@@ -2457,7 +2457,7 @@ namespace rsx
 	//Pause/cont wrappers for FIFO ctrl. Never call this from rsx thread itself!
 	void thread::pause()
 	{
-		while (UNLIKELY(external_interrupt_lock.exchange(true)))
+		while (external_interrupt_lock.exchange(true)) [[unlikely]]
 		{
 			_mm_pause();
 		}

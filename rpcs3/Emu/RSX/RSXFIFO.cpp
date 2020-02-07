@@ -165,7 +165,7 @@ namespace rsx
 
 			// Validate the args ptr if the command attempts to read from it
 			m_args_ptr = m_iotable->get_ioaddr(m_internal_get + 4);
-			if (!(m_args_ptr + 1)) [[unlikely]
+			if (!(m_args_ptr + 1)) [[unlikely]]
 			{
 				// Optional recovery
 				data.reg = FIFO_ERROR;
