@@ -467,11 +467,11 @@ std::string vfs::unescape(std::string_view path)
 	std::string result;
 	result.reserve(path.size());
 
-	const char specialDot[] = u8"｡";
+	const char* specialDot = reinterpret_cast<const char*>(u8"｡");
 	for (std::size_t i = 0, s = path.size(); i < s; i++)
 	{
-		const size_t nexti = i+sizeof(specialDot);
-		if (nexti <= s && memcmp(&path[i],specialDot,sizeof(specialDot) == 0))
+		const size_t nexti = i+strlen(specialDot)+1;
+		if (nexti <= s && memcmp(&path[i],specialDot,strlen(specialDot)+1 == 0))
 		{			
 			if (nexti == s || path[nexti] == '/')
 			{
