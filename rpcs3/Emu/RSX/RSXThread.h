@@ -190,7 +190,7 @@ namespace rsx
 
 			for (const auto &attrib : locations)
 			{
-				if (LIKELY(attrib.frequency <= 1))
+				if (attrib.frequency <= 1) [[likely]]
 				{
 					_max_index = max_index;
 				}
@@ -532,7 +532,7 @@ namespace rsx
 			while (!buffer_queue.empty());
 
 			// Need to observe this happening in the wild
-			LOG_ERROR(RSX, "Display queue was discarded while not empty!");
+			rsx_log.error("Display queue was discarded while not empty!");
 			return false;
 		}
 	};

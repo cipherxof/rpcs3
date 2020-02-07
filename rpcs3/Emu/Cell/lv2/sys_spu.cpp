@@ -31,16 +31,16 @@ void sys_spu_image::load(const fs::file& stream)
 
 	for (const auto& shdr : obj.shdrs)
 	{
-		LOG_NOTICE(SPU, "** Section: sh_type=0x%x, addr=0x%llx, size=0x%llx, flags=0x%x", shdr.sh_type, shdr.sh_addr, shdr.sh_size, shdr.sh_flags);
+		spu_log.notice("** Section: sh_type=0x%x, addr=0x%llx, size=0x%llx, flags=0x%x", shdr.sh_type, shdr.sh_addr, shdr.sh_size, shdr.sh_flags);
 	}
 
 	for (const auto& prog : obj.progs)
 	{
-		LOG_NOTICE(SPU, "** Segment: p_type=0x%x, p_vaddr=0x%llx, p_filesz=0x%llx, p_memsz=0x%llx, flags=0x%x", prog.p_type, prog.p_vaddr, prog.p_filesz, prog.p_memsz, prog.p_flags);
+		spu_log.notice("** Segment: p_type=0x%x, p_vaddr=0x%llx, p_filesz=0x%llx, p_memsz=0x%llx, flags=0x%x", prog.p_type, prog.p_vaddr, prog.p_filesz, prog.p_memsz, prog.p_flags);
 
 		if (prog.p_type != SYS_SPU_SEGMENT_TYPE_COPY && prog.p_type != SYS_SPU_SEGMENT_TYPE_INFO)
 		{
-			LOG_ERROR(SPU, "Unknown program type (0x%x)", prog.p_type);
+			spu_log.error("Unknown program type (0x%x)", prog.p_type);
 		}
 	}
 
@@ -105,7 +105,7 @@ void sys_spu_image::deploy(u32 loc, sys_spu_segment* segs, u32 nsegs)
 		{
 			if ((seg.ls | seg.size) % 4)
 			{
-				LOG_ERROR(SPU, "Unaligned SPU FILL type segment (ls=0x%x, size=0x%x)", seg.ls, seg.size);
+				spu_log.error("Unaligned SPU FILL type segment (ls=0x%x, size=0x%x)", seg.ls, seg.size);
 			}
 
 			std::fill_n(vm::_ptr<u32>(loc + seg.ls), seg.size / 4, seg.addr);
@@ -140,7 +140,7 @@ void sys_spu_image::deploy(u32 loc, sys_spu_segment* segs, u32 nsegs)
 		applied += g_fxo->get<patch_engine>()->apply(Emu.GetTitleID() + '-' + hash, vm::_ptr<u8>(loc));
 	}
 
-	LOG_NOTICE(LOADER, "Loaded SPU image: %s (<- %u)%s", hash, applied, dump);
+	spu_log.notice("Loaded SPU image: %s (<- %u)%s", hash, applied, dump);
 }
 
 // Get spu thread ptr, returns group ptr as well for refcounting
@@ -356,7 +356,7 @@ error_code sys_spu_thread_initialize(ppu_thread& ppu, vm::ptr<u32> thread, u32 g
 				// Hack: don't run more SPURS threads than specified.
 				group->max_run = g_cfg.core.max_spurs_threads;
 
-				LOG_SUCCESS(SPU, "HACK: '%s' (0x%x) limited to %u threads.", group->name, group_id, +g_cfg.core.max_spurs_threads);
+				spu_log.success("HACK: '%s' (0x%x) limited to %u threads.", group->name, group_id, +g_cfg.core.max_spurs_threads);
 			}
 		}
 
@@ -375,7 +375,7 @@ error_code sys_spu_thread_set_argument(ppu_thread& ppu, u32 id, vm::ptr<sys_spu_
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -395,7 +395,7 @@ error_code sys_spu_thread_get_exit_status(ppu_thread& ppu, u32 id, vm::ptr<u32> 
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -457,7 +457,7 @@ error_code sys_spu_thread_group_create(ppu_thread& ppu, vm::ptr<u32> id, u32 num
 		}
 
 		min_threads = 2; // That's what appears from reversing
-		[[fallthrough]];
+		break;
 	}
 
 	case 0x2:
@@ -494,17 +494,20 @@ error_code sys_spu_thread_group_create(ppu_thread& ppu, vm::ptr<u32> id, u32 num
 
 	if (type & SYS_SPU_THREAD_GROUP_TYPE_COOPERATE_WITH_SYSTEM)
 	{
+		// Constant size, unknown what it means but it's definitely not for each spu thread alone
+		mem_size = 0x40000;
 		use_scheduler = false;
-		mem_size = 0x40000; // Constant size, unknown what it means but it's definitely not for each spu thread alone
 	}
-	else if (!(type & SYS_SPU_THREAD_GROUP_TYPE_NON_CONTEXT))
+	else if (type & SYS_SPU_THREAD_GROUP_TYPE_NON_CONTEXT)
 	{
-		mem_size = 0x40000 * num; // 256kb for each spu thread, probably for saving and restoring SPU LS
+		// No memory consumed
+		mem_size = 0;
+		use_scheduler = false;
 	}
 	else
 	{
-		use_scheduler = false;
-		mem_size = 0; // No memory allocations
+		// 256kb for each spu thread, probably for saving and restoring SPU LS (used by scheduler?)
+		mem_size = 0x40000 * num;
 	}
 
 	if (num < min_threads || num > max_threads || 
@@ -548,7 +551,7 @@ error_code sys_spu_thread_group_create(ppu_thread& ppu, vm::ptr<u32> id, u32 num
 	}
 
 	*id = idm::last_id();
-	sys_spu.warning(u8"sys_spu_thread_group_create(): Thread group “%s” created (id=0x%x)", group->name, idm::last_id()); 
+	sys_spu.warning(u8"sys_spu_thread_group_create(): Thread group “%s” created (id=0x%x)", group->name, idm::last_id());
 	return CELL_OK;
 }
 
@@ -678,7 +681,7 @@ error_code sys_spu_thread_group_suspend(ppu_thread& ppu, u32 id)
 		return CELL_ESRCH;
 	}
 
-	if (!group->has_scheduler_context)
+	if (!group->has_scheduler_context || group->type & 0xf00)
 	{
 		return CELL_EINVAL;
 	}
@@ -733,7 +736,7 @@ error_code sys_spu_thread_group_resume(ppu_thread& ppu, u32 id)
 		return CELL_ESRCH;
 	}
 
-	if (!group->has_scheduler_context)
+	if (!group->has_scheduler_context || group->type & 0xf00)
 	{
 		return CELL_EINVAL;
 	}
@@ -780,7 +783,8 @@ error_code sys_spu_thread_group_yield(ppu_thread& ppu, u32 id)
 		return CELL_ESRCH;
 	}
 
-	if (!group->has_scheduler_context)
+	// No effect on these group types
+	if (!group->has_scheduler_context || group->type & 0xf00)
 	{
 		return CELL_OK;
 	}
@@ -992,7 +996,7 @@ error_code sys_spu_thread_write_ls(ppu_thread& ppu, u32 id, u32 lsa, u64 value, 
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1029,7 +1033,7 @@ error_code sys_spu_thread_read_ls(ppu_thread& ppu, u32 id, u32 lsa, vm::ptr<u64>
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1061,10 +1065,12 @@ error_code sys_spu_thread_write_spu_mb(ppu_thread& ppu, u32 id, u32 value)
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
+
+	std::lock_guard lock(group->mutex);
 
 	thread->ch_in_mbox.push(*thread, value);
 
@@ -1084,7 +1090,7 @@ error_code sys_spu_thread_set_spu_cfg(ppu_thread& ppu, u32 id, u64 value)
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1102,7 +1108,7 @@ error_code sys_spu_thread_get_spu_cfg(ppu_thread& ppu, u32 id, vm::ptr<u64> valu
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1120,7 +1126,7 @@ error_code sys_spu_thread_write_snr(ppu_thread& ppu, u32 id, u32 number, u32 val
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1224,7 +1230,7 @@ error_code sys_spu_thread_connect_event(ppu_thread& ppu, u32 id, u32 eq, u32 et,
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 	const auto queue = idm::get<lv2_obj, lv2_event_queue>(eq);
 
-	if (UNLIKELY(!queue || !thread))
+	if (!queue || !thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1257,7 +1263,7 @@ error_code sys_spu_thread_disconnect_event(ppu_thread& ppu, u32 id, u32 et, u8 s
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1291,7 +1297,7 @@ error_code sys_spu_thread_bind_queue(ppu_thread& ppu, u32 id, u32 spuq, u32 spuq
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 	const auto queue = idm::get<lv2_obj, lv2_event_queue>(spuq);
 
-	if (UNLIKELY(!queue || !thread))
+	if (!queue || !thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1344,7 +1350,7 @@ error_code sys_spu_thread_unbind_queue(ppu_thread& ppu, u32 id, u32 spuq_num)
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1520,7 +1526,7 @@ error_code sys_spu_thread_recover_page_fault(ppu_thread& ppu, u32 id)
 
 	const auto [thread, group] = lv2_spu_group::get_thread(id);
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1536,7 +1542,7 @@ error_code sys_raw_spu_recover_page_fault(ppu_thread& ppu, u32 id)
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1585,7 +1591,7 @@ error_code sys_raw_spu_destroy(ppu_thread& ppu, u32 id)
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1698,7 +1704,7 @@ error_code sys_raw_spu_set_int_mask(ppu_thread& ppu, u32 id, u32 class_id, u64 m
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1721,7 +1727,7 @@ error_code sys_raw_spu_get_int_mask(ppu_thread& ppu, u32 id, u32 class_id, vm::p
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1744,7 +1750,7 @@ error_code sys_raw_spu_set_int_stat(ppu_thread& ppu, u32 id, u32 class_id, u64 s
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1767,7 +1773,7 @@ error_code sys_raw_spu_get_int_stat(ppu_thread& ppu, u32 id, u32 class_id, vm::p
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1785,7 +1791,7 @@ error_code sys_raw_spu_read_puint_mb(ppu_thread& ppu, u32 id, vm::ptr<u32> value
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1808,7 +1814,7 @@ error_code sys_raw_spu_set_spu_cfg(ppu_thread& ppu, u32 id, u32 value)
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}
@@ -1826,7 +1832,7 @@ error_code sys_raw_spu_get_spu_cfg(ppu_thread& ppu, u32 id, vm::ptr<u32> value)
 
 	const auto thread = idm::get<named_thread<spu_thread>>(spu_thread::find_raw_spu(id));
 
-	if (UNLIKELY(!thread))
+	if (!thread) [[unlikely]]
 	{
 		return CELL_ESRCH;
 	}

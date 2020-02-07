@@ -137,7 +137,7 @@ void VKFragmentDecompilerThread::insertConstants(std::stringstream & OS)
 				if (m_shadow_sampled_textures & mask)
 				{
 					if (m_2d_sampled_textures & mask)
-						LOG_ERROR(RSX, "Texture unit %d is sampled as both a shadow texture and a depth texture", index);
+						rsx_log.error("Texture unit %d is sampled as both a shadow texture and a depth texture", index);
 					else
 						samplerType = "sampler2DShadow";
 				}
@@ -268,7 +268,7 @@ void VKFragmentDecompilerThread::insertMainStart(std::stringstream & OS)
 	for (auto &reg_name : output_registers)
 	{
 		const auto type = (reg_name[0] == 'r' || !device_props.has_native_half_support)? "vec4" : half4;
-		if (LIKELY(reg_type == type))
+		if (reg_type == type) [[likely]]
 		{
 			registers += ", " + reg_name + " = " + type + "(0.)";
 		}
