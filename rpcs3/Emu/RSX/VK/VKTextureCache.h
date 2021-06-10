@@ -6,6 +6,7 @@
 #include "VKResourceManager.h"
 #include "VKDMA.h"
 #include "Emu/System.h"
+#include "VKRenderPass.h"
 #include "../Common/TextureUtils.h"
 #include "Utilities/mutex.h"
 #include "../Common/texture_cache.h"
@@ -180,6 +181,11 @@ namespace vk
 				VkEventCreateInfo createInfo = {};
 				createInfo.sType = VK_STRUCTURE_TYPE_EVENT_CREATE_INFO;
 				vkCreateEvent(*m_device, &createInfo, nullptr, &dma_fence);
+			}
+
+			if (vk::is_renderpass_open(cmd))
+			{
+				vk::end_renderpass(cmd);
 			}
 
 			src->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
