@@ -690,11 +690,12 @@ namespace rsx
 				rsx->m_rtts_dirty = true;
 		}
 
-		void set_ROP_state_dirty_bit(thread* rsx, u32, u32 arg)
+		template <u32 RsxFlags>
+		void notify_state_changed(thread* rsx, u32, u32 arg)
 		{
 			if (arg != method_registers.register_previous_value)
 			{
-				rsx->m_graphics_state |= rsx::fragment_state_dirty;
+				rsx->m_graphics_state |= RsxFlags;
 			}
 		}
 
@@ -723,30 +724,6 @@ namespace rsx
 
 				// Insert base mofifier barrier
 				method_registers.current_draw_clause.insert_command_barrier(index_base_modifier_barrier, arg);
-			}
-		}
-
-		void set_vertex_env_dirty_bit(thread* rsx, u32, u32 arg)
-		{
-			if (arg != method_registers.register_previous_value)
-			{
-				rsx->m_graphics_state |= rsx::pipeline_state::vertex_state_dirty;
-			}
-		}
-
-		void set_fragment_env_dirty_bit(thread* rsx, u32, u32 arg)
-		{
-			if (arg != method_registers.register_previous_value)
-			{
-				rsx->m_graphics_state |= rsx::pipeline_state::fragment_state_dirty;
-			}
-		}
-
-		void set_scissor_dirty_bit(thread* rsx, u32 reg, u32 arg)
-		{
-			if (arg != method_registers.register_previous_value)
-			{
-				rsx->m_graphics_state |= rsx::pipeline_state::scissor_config_state_dirty;
 			}
 		}
 
@@ -892,8 +869,6 @@ namespace rsx
 
 			// NOTE: Do not round these value up!
 			// Sub-pixel offsets are used to signify pixel centers and do not mean to read from the next block (fill convention)
-			auto in_x = static_cast<u16>(std::floor(method_registers.blit_engine_in_x()));
-			auto in_y = static_cast<u16>(std::floor(method_registers.blit_engine_in_y()));
 
 			// Clipping
 			// Validate that clipping rect will fit onto both src and dst regions
@@ -978,24 +953,37 @@ namespace rsx
 				out_pitch = out_bpp * out_w;
 			}
 
-			if (in_x == 1 || in_y == 1) [[unlikely]]
+			if (in_bpp != out_bpp)
 			{
-				if (is_block_transfer && in_bpp == out_bpp)
-				{
-					// No scaling factor, so size in src == size in dst
-					// Check for texel wrapping where (offset + size) > size by 1 pixel
-					// TODO: Should properly RE this behaviour when I have time (kd-11)
-					if (in_x == 1 && in_w == clip_w) in_x = 0;
-					if (in_y == 1 && in_h == clip_h) in_y = 0;
-				}
-				else
-				{
-					// Graphics operation, ignore subpixel correction offsets
-					if (in_x == 1) in_x = 0;
-					if (in_y == 1) in_y = 0;
+				is_block_transfer = false;
+			}
 
-					is_block_transfer = false;
-				}
+			u16 in_x, in_y;
+			if (in_origin == blit_engine::transfer_origin::center)
+			{
+				// Convert to normal u,v addressing. Under this scheme offset of 1 is actually half-way inside pixel 0
+				const float x = std::max(method_registers.blit_engine_in_x(), 0.5f);
+				const float y = std::max(method_registers.blit_engine_in_y(), 0.5f);
+				in_x          = static_cast<u16>(std::floor(x - 0.5f));
+				in_y          = static_cast<u16>(std::floor(y - 0.5f));
+			}
+			else
+			{
+				in_x = static_cast<u16>(std::floor(method_registers.blit_engine_in_x()));
+				in_y = static_cast<u16>(std::floor(method_registers.blit_engine_in_y()));
+			}
+
+			// Check for subpixel addressing
+			if (scale_x < 1.f)
+			{
+				float dst_x = in_x * scale_x;
+				in_x        = static_cast<u16>(std::floor(dst_x) / scale_x);
+			}
+
+			if (scale_y < 1.f)
+			{
+				float dst_y = in_y * scale_x;
+				in_y        = static_cast<u16>(std::floor(dst_y) / scale_y);
 			}
 
 			const u32 in_offset = in_x * in_bpp + in_pitch * in_y;
@@ -2772,6 +2760,7 @@ namespace rsx
 		methods[NV4097_SET_POINT_SIZE]                    = nullptr;
 		methods[NV4097_SET_POINT_PARAMS_ENABLE]           = nullptr;
 		methods[NV4097_SET_POINT_SPRITE_CONTROL]          = nullptr;
+		methods[NV4097_SET_POLYGON_STIPPLE]               = nullptr;
 		methods[NV4097_SET_TRANSFORM_TIMEOUT]             = nullptr;
 		methods[NV4097_SET_TRANSFORM_CONSTANT_LOAD]       = nullptr;
 		methods[NV4097_SET_TRANSFORM_CONSTANT]            = nullptr;
@@ -2890,6 +2879,9 @@ namespace rsx
 		bind_array<NV4097_SET_VERTEX_DATA1F_M, 1, 16, nullptr>();
 		bind_array<NV4097_SET_COLOR_KEY_COLOR, 1, 16, nullptr>();
 
+		bind<NV4097_SET_POLYGON_STIPPLE, nv4097::notify_state_changed<fragment_state_dirty>>();
+		bind_array<NV4097_SET_POLYGON_STIPPLE_PATTERN, 1, 32, nv4097::notify_state_changed<polygon_stipple_pattern_dirty>>();
+
 		// Unknown (NV4097?)
 		bind<(0x171c >> 2), trace_method>();
 		bind_array<(0xac00 >> 2), 1, 16, trace_method>(); // Unknown texture control register
@@ -2978,22 +2970,23 @@ namespace rsx
 		bind<NV4097_SET_VERTEX_ATTRIB_OUTPUT_MASK, nv4097::set_vertex_attribute_output_mask>();
 		bind<NV4097_SET_VERTEX_DATA_BASE_OFFSET, nv4097::set_vertex_base_offset>();
 		bind<NV4097_SET_VERTEX_DATA_BASE_INDEX, nv4097::set_index_base_offset>();
-		bind<NV4097_SET_USER_CLIP_PLANE_CONTROL, nv4097::set_vertex_env_dirty_bit>();
-		bind<NV4097_SET_TRANSFORM_BRANCH_BITS, nv4097::set_vertex_env_dirty_bit>();
-		bind<NV4097_SET_CLIP_MIN, nv4097::set_vertex_env_dirty_bit>();
-		bind<NV4097_SET_CLIP_MAX, nv4097::set_vertex_env_dirty_bit>();
-		bind<NV4097_SET_ALPHA_FUNC, nv4097::set_ROP_state_dirty_bit>();
-		bind<NV4097_SET_ALPHA_REF, nv4097::set_ROP_state_dirty_bit>();
-		bind<NV4097_SET_ALPHA_TEST_ENABLE, nv4097::set_ROP_state_dirty_bit>();
-		bind<NV4097_SET_ANTI_ALIASING_CONTROL, nv4097::set_ROP_state_dirty_bit>();
-		bind<NV4097_SET_SHADER_PACKER, nv4097::set_ROP_state_dirty_bit>();
-		bind<NV4097_SET_SHADER_WINDOW, nv4097::set_ROP_state_dirty_bit>();
-		bind<NV4097_SET_FOG_MODE, nv4097::set_ROP_state_dirty_bit>();
-		bind<NV4097_SET_SCISSOR_HORIZONTAL, nv4097::set_scissor_dirty_bit>();
-		bind<NV4097_SET_SCISSOR_VERTICAL, nv4097::set_scissor_dirty_bit>();
-		bind<NV4097_SET_VIEWPORT_HORIZONTAL, nv4097::set_scissor_dirty_bit>();
-		bind<NV4097_SET_VIEWPORT_VERTICAL, nv4097::set_scissor_dirty_bit>();
-		bind_array<NV4097_SET_FOG_PARAMS, 1, 2, nv4097::set_ROP_state_dirty_bit>();
+		bind<NV4097_SET_USER_CLIP_PLANE_CONTROL, nv4097::notify_state_changed<vertex_state_dirty>>();
+		bind<NV4097_SET_TRANSFORM_BRANCH_BITS, nv4097::notify_state_changed<vertex_state_dirty>>();
+		bind<NV4097_SET_CLIP_MIN, nv4097::notify_state_changed<vertex_state_dirty>>();
+		bind<NV4097_SET_CLIP_MAX, nv4097::notify_state_changed<vertex_state_dirty>>();
+		bind<NV4097_SET_POINT_SIZE, nv4097::notify_state_changed<vertex_state_dirty>>();
+		bind<NV4097_SET_ALPHA_FUNC, nv4097::notify_state_changed<fragment_state_dirty>>();
+		bind<NV4097_SET_ALPHA_REF, nv4097::notify_state_changed<fragment_state_dirty>>();
+		bind<NV4097_SET_ALPHA_TEST_ENABLE, nv4097::notify_state_changed<fragment_state_dirty>>();
+		bind<NV4097_SET_ANTI_ALIASING_CONTROL, nv4097::notify_state_changed<fragment_state_dirty>>();
+		bind<NV4097_SET_SHADER_PACKER, nv4097::notify_state_changed<fragment_state_dirty>>();
+		bind<NV4097_SET_SHADER_WINDOW, nv4097::notify_state_changed<fragment_state_dirty>>();
+		bind<NV4097_SET_FOG_MODE, nv4097::notify_state_changed<fragment_state_dirty>>();
+		bind<NV4097_SET_SCISSOR_HORIZONTAL, nv4097::notify_state_changed<scissor_config_state_dirty>>();
+		bind<NV4097_SET_SCISSOR_VERTICAL, nv4097::notify_state_changed<scissor_config_state_dirty>>();
+		bind<NV4097_SET_VIEWPORT_HORIZONTAL, nv4097::notify_state_changed<scissor_config_state_dirty>>();
+		bind<NV4097_SET_VIEWPORT_VERTICAL, nv4097::notify_state_changed<scissor_config_state_dirty>>();
+		bind_array<NV4097_SET_FOG_PARAMS, 1, 2, nv4097::notify_state_changed<fragment_state_dirty>>();
 		bind_range<NV4097_SET_VIEWPORT_SCALE, 1, 3, nv4097::set_viewport_dirty_bit>();
 		bind_range<NV4097_SET_VIEWPORT_OFFSET, 1, 3, nv4097::set_viewport_dirty_bit>();
 		bind<NV4097_SET_INDEX_ARRAY_DMA, nv4097::check_index_array_dma>();

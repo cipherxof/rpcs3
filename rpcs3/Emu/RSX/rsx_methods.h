@@ -657,7 +657,12 @@ namespace rsx
 
 		bool alpha_test_enabled() const
 		{
-			return decode<NV4097_SET_ALPHA_TEST_ENABLE>().alpha_test_enabled();
+			switch (surface_color())
+			{
+			case rsx::surface_color_format::x32:
+			case rsx::surface_color_format::w32z32y32x32: return false;
+			default: return decode<NV4097_SET_ALPHA_TEST_ENABLE>().alpha_test_enabled();
+			}
 		}
 
 		bool stencil_test_enabled() const
@@ -1107,9 +1112,15 @@ namespace rsx
 			return decode<NV4097_SET_POINT_SPRITE_CONTROL>().enabled();
 		}
 
-		u8 alpha_ref() const
+		f32 alpha_ref() const
 		{
-			return decode<NV4097_SET_ALPHA_REF>().alpha_ref();
+			switch (surface_color())
+			{
+			case rsx::surface_color_format::x32:
+			case rsx::surface_color_format::w32z32y32x32: return decode<NV4097_SET_ALPHA_REF>().alpha_ref32();
+			case rsx::surface_color_format::w16z16y16x16: return decode<NV4097_SET_ALPHA_REF>().alpha_ref16();
+			default: return decode<NV4097_SET_ALPHA_REF>().alpha_ref8();
+			}
 		}
 
 		surface_target surface_color_target() const
@@ -1697,6 +1708,16 @@ namespace rsx
 		u16 point_sprite_control_mask() const
 		{
 			return decode<NV4097_SET_POINT_SPRITE_CONTROL>().texcoord_mask();
+		}
+
+		const void* polygon_stipple_pattern() const
+		{
+			return registers.data() + NV4097_SET_POLYGON_STIPPLE_PATTERN;
+		}
+
+		bool polygon_stipple_enabled() const
+		{
+			return decode<NV4097_SET_POLYGON_STIPPLE>().enabled();
 		}
 	};
 

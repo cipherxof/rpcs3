@@ -93,6 +93,9 @@ private:
 	std::unique_ptr<gl::ring_buffer> m_texture_parameters_buffer;
 	std::unique_ptr<gl::ring_buffer> m_vertex_layout_buffer;
 	std::unique_ptr<gl::ring_buffer> m_index_ring_buffer;
+	std::unique_ptr<gl::ring_buffer> m_vertex_instructions_buffer;
+	std::unique_ptr<gl::ring_buffer> m_fragment_instructions_buffer;
+	std::unique_ptr<gl::ring_buffer> m_raster_env_ring_buffer;
 
 	// Identity buffer used to fix broken gl_VertexID on ATI stack
 	std::unique_ptr<gl::buffer> m_identity_index_buffer;

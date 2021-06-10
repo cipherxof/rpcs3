@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "VKGSRender.h"
 
 
@@ -105,7 +105,7 @@ void VKGSRender::advance_queued_frames()
 	check_present_status();
 
 	// m_rtts storage is double buffered and should be safe to tag on frame boundary
-	m_rtts.free_invalidated();
+	m_rtts.free_invalidated(*m_current_command_buffer);
 
 	// Texture cache is also double buffered to prevent use-after-free
 	m_texture_cache.on_frame_end();
@@ -122,7 +122,8 @@ void VKGSRender::advance_queued_frames()
 		m_fragment_constants_ring_info.get_current_put_pos_minus_one(),
 		m_transform_constants_ring_info.get_current_put_pos_minus_one(),
 		m_index_buffer_ring_info.get_current_put_pos_minus_one(),
-		m_texture_upload_buffer_ring_info.get_current_put_pos_minus_one());
+		m_texture_upload_buffer_ring_info.get_current_put_pos_minus_one(),
+		m_raster_env_ring_info.get_current_put_pos_minus_one());
 
 	m_queued_frames.push_back(m_current_frame);
 	verify(HERE), m_queued_frames.size() <= VK_MAX_ASYNC_FRAMES;

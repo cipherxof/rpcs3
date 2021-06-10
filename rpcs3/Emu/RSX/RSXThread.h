@@ -77,6 +77,9 @@ namespace rsx
 		scissor_setup_invalid = 0x400,       // Scissor configuration is broken
 		scissor_setup_clipped = 0x800,       // Scissor region is cropped by viewport constraint
 
+		polygon_stipple_pattern_dirty = 0x1000, // Rasterizer stippling pattern changed
+		line_stipple_pattern_dirty    = 0x2000, // Line stippling pattern changed
+
 		invalidate_pipeline_bits = fragment_program_dirty | vertex_program_dirty,
 		memory_barrier_bits = framebuffer_reads_dirty,
 		all_dirty = ~0u
@@ -102,6 +105,17 @@ namespace rsx
 		result_none = 0,
 		result_error = 1,
 		result_zcull_intr = 2
+	};
+
+	enum ROP_control : u32
+	{
+		alpha_test_enable       = (1u << 0),
+		framebuffer_srgb_enable = (1u << 1),
+		csaa_enable             = (1u << 4),
+		msaa_mask_enable        = (1u << 5),
+		msaa_config_mask        = (3u << 6),
+		polygon_stipple_enable  = (1u << 9),
+		alpha_func_mask         = (7u << 16)
 	};
 
 	u32 get_vertex_type_size_on_host(vertex_base_type type, u32 size);
@@ -202,7 +216,7 @@ namespace rsx
 						{
 							// Actually uses the modulo operator, cannot safely optimize
 							_min_index = 0;
-							_max_index = std::max<u32>(_max_index, attrib.frequency - 1);
+							_max_index = attrib.frequency - 1;
 						}
 						else
 						{
@@ -214,7 +228,7 @@ namespace rsx
 					{
 						// Division operator
 						_min_index = std::min(_min_index, first / attrib.frequency);
-						_max_index = std::max<u32>(_max_index, max_index / attrib.frequency);
+						_max_index = std::max<u32>(_max_index, aligned_div(max_index, attrib.frequency));
 					}
 				}
 			}

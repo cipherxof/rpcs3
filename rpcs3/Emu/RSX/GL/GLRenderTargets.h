@@ -355,7 +355,7 @@ struct gl_render_targets : public rsx::surface_store<gl_render_target_traits>
 		invalidated_resources.clear();
 	}
 
-	std::vector<GLuint> free_invalidated()
+	std::vector<GLuint> free_invalidated(gl::command_context& cmd)
 	{
 		std::vector<GLuint> removed;
 		invalidated_resources.remove_if([&](auto &rtt)
