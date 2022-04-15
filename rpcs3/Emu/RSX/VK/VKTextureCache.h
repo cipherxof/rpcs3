@@ -1330,8 +1330,14 @@ namespace vk
 			section.set_view_flags(expected_flags);
 		}
 
-		void insert_texture_barrier(vk::command_buffer& cmd, vk::image* tex) override
+		void insert_texture_barrier(vk::command_buffer& cmd, vk::image* tex, bool strong_ordering) override
 		{
+			if (!strong_ordering && tex->current_layout == VK_IMAGE_LAYOUT_GENERAL)
+			{
+				// A previous barrier already exists, do nothing
+				return;
+			}
+
 			vk::insert_texture_barrier(cmd, tex, VK_IMAGE_LAYOUT_GENERAL);
 		}
 

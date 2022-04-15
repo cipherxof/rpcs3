@@ -815,6 +815,12 @@ namespace vk
 			m_time = static_cast<f32>(get_system_time() / 1000) * 0.005f;
 			m_viewport_size = { static_cast<f32>(viewport.width()), static_cast<f32>(viewport.height()) };
 
+			std::vector<vk::image_view*> image_views
+			{
+				vk::null_image_view(cmd, VK_IMAGE_VIEW_TYPE_2D),
+				vk::null_image_view(cmd, VK_IMAGE_VIEW_TYPE_2D_ARRAY)
+			};
+
 			for (auto &command : ui.get_compiled().draw_commands)
 			{
 				num_drawable_elements = static_cast<u32>(command.verts.size());
@@ -831,7 +837,7 @@ namespace vk
 				m_clip_region = command.config.clip_rect;
 				m_texture_type = 1;
 
-				auto src = vk::null_image_view(cmd);
+				vk::image_view* src = nullptr;
 				switch (command.config.texture_ref)
 				{
 				case rsx::overlays::image_resource_id::game_icon:
@@ -852,7 +858,13 @@ namespace vk
 					break;
 				}
 
-				overlay_pass::run(cmd, viewport, target, { src }, render_pass);
+				if (src)
+				{
+					const int res_id = src->image()->layers() > 1 ? 1 : 0;
+					image_views[res_id] = src;
+				}
+
+				overlay_pass::run(cmd, viewport, target, image_views, render_pass);
 			}
 
 			ui.update();

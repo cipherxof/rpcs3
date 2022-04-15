@@ -68,8 +68,8 @@ namespace vk
 	const render_device* g_current_renderer;
 
 	std::unique_ptr<image> g_null_texture;
-	std::unique_ptr<image_view> g_null_image_view;
 	std::unique_ptr<buffer> g_scratch_buffer;
+	std::unordered_map<VkImageViewType, std::unique_ptr<image_view>> g_null_image_views;
 	std::unordered_map<u32, std::unique_ptr<image>> g_typeless_textures;
 	std::unordered_map<u32, std::unique_ptr<vk::compute_task>> g_compute_tasks;
 
@@ -132,7 +132,7 @@ namespace vk
 	bool data_heap::grow(size_t size)
 	{
 		// Create new heap. All sizes are aligned up by 64M, upto 1GiB
-		const size_t size_limit = 1024 * 0x100000;
+		const size_t size_limit       = 1024 * 0x100000;
 		const size_t aligned_new_size = align(m_size + size, 64 * 0x100000);
 
 		if (aligned_new_size >= size_limit)
@@ -148,7 +148,7 @@ namespace vk
 		}
 
 		// Wait for DMA activity to end
-		rsx::g_dma_manager.sync();
+		g_fxo->get<rsx::dma_manager>()->sync();
 
 		if (mapped)
 		{
@@ -158,11 +158,11 @@ namespace vk
 
 		VkBufferUsageFlags usage = heap->info.usage;
 
-		const auto device = get_current_renderer();
+		const auto device      = get_current_renderer();
 		const auto& memory_map = device->get_memory_mapping();
 
 		VkFlags memory_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-		auto memory_index = memory_map.host_visible_coherent;
+		auto memory_index    = memory_map.host_visible_coherent;
 
 		// Update heap information and reset the allocator
 		::data_heap::init(aligned_new_size, m_name, m_min_guard_size);
@@ -290,26 +290,33 @@ namespace vk
 		return g_null_sampler;
 	}
 
-	vk::image_view* null_image_view(vk::command_buffer &cmd)
+	vk::image_view* null_image_view(vk::command_buffer& cmd, VkImageViewType type)
 	{
-		if (g_null_image_view)
-			return g_null_image_view.get();
+		if (auto found = g_null_image_views.find(type); found != g_null_image_views.end())
+		{
+			return found->second.get();
+		}
 
-		g_null_texture = std::make_unique<image>(*g_current_renderer, g_current_renderer->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_TYPE_2D, VK_FORMAT_B8G8R8A8_UNORM, 4, 4, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0);
+		if (!g_null_texture)
+		{
+			g_null_texture = std::make_unique<image>(*g_current_renderer, g_current_renderer->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_TYPE_2D, VK_FORMAT_B8G8R8A8_UNORM,
+			   4, 4, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0);
 
-		g_null_image_view = std::make_unique<image_view>(*g_current_renderer, g_null_texture.get());
+			// Initialize memory to transparent black
+			VkClearColorValue clear_color = {};
+			VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+			change_image_layout(cmd, g_null_texture.get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, range);
+			vkCmdClearColorImage(cmd, g_null_texture->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear_color, 1, &range);
 
-		// Initialize memory to transparent black
-		VkClearColorValue clear_color = {};
-		VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		change_image_layout(cmd, g_null_texture.get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, range);
-		vkCmdClearColorImage(cmd, g_null_texture->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear_color, 1, &range);
+			// Prep for shader access
+			change_image_layout(cmd, g_null_texture.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, range);
+		}
 
-		// Prep for shader access
-		change_image_layout(cmd, g_null_texture.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, range);
-		return g_null_image_view.get();
+		const VkComponentMapping mapping = {VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A};
+		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+		auto& ret = g_null_image_views[type] = std::make_unique<image_view>(*g_current_renderer, g_null_texture.get(), mapping, range, type);
+		return ret.get();
 	}
 
 	vk::image* get_typeless_helper(VkFormat format, u32 requested_width, u32 requested_height)
@@ -352,9 +359,8 @@ namespace vk
 			// Choose optimal size
 			const u64 alloc_size = std::max<u64>(64 * 0x100000, align(min_required_size, 0x100000));
 
-			g_scratch_buffer = std::make_unique<vk::buffer>(*g_current_renderer, alloc_size,
-				g_current_renderer->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-				VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0);
+			g_scratch_buffer = std::make_unique<vk::buffer>(*g_current_renderer, alloc_size, g_current_renderer->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			    VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0);
 		}
 
 		return g_scratch_buffer.get();
@@ -397,7 +403,7 @@ namespace vk
 		vk::get_resource_manager()->destroy();
 
 		g_null_texture.reset();
-		g_null_image_view.reset();
+		g_null_image_views.clear();
 		g_scratch_buffer.reset();
 		g_upload_heap.destroy();
 

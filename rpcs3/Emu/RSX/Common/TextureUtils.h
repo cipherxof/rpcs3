@@ -40,7 +40,9 @@ namespace rsx
 	{
 		read = 0,
 		write = 1,
-		transfer = 2
+		transfer = 2,
+
+		gpu_reference = (1 << 6)
 	};
 
 	enum format_type : u8
@@ -57,6 +59,8 @@ namespace rsx
 		rsx::texture_dimension_extended image_type = texture_dimension_extended::texture_dimension_2d;
 		rsx::format_type format_class = rsx::format_type::color;
 		bool is_cyclic_reference = false;
+		u32 ref_address = 0;
+		u64 surface_cache_tag = 0;
 		f32 scale_x = 1.f;
 		f32 scale_y = 1.f;
 

@@ -368,7 +368,6 @@ private:
 	u64 m_cond_render_sync_tag = 0;
 
 	shared_mutex m_sampler_mutex;
-	u64 surface_store_tag = 0;
 	std::atomic_bool m_samplers_dirty = { true };
 	std::unique_ptr<vk::sampler> m_stencil_mirror_sampler;
 	std::array<std::unique_ptr<rsx::sampled_image_descriptor_base>, rsx::limits::fragment_textures_count> fs_sampler_state = {};
@@ -512,6 +511,9 @@ private:
 	bool load_program();
 	void load_program_env();
 	void update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_info);
+
+	void load_texture_env();
+	void bind_texture_env();
 
 public:
 	void init_buffers(rsx::framebuffer_creation_context context, bool skip_reading = false);

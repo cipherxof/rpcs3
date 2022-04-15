@@ -142,7 +142,7 @@ namespace vk
 	VkImageAspectFlags get_aspect_flags(VkFormat format);
 
 	VkSampler null_sampler();
-	image_view* null_image_view(vk::command_buffer&);
+	image_view* null_image_view(vk::command_buffer& cmd, VkImageViewType type);
 	image* get_typeless_helper(VkFormat format, u32 requested_width, u32 requested_height);
 	buffer* get_scratch_buffer(u32 min_required_size = 0);
 	data_heap* get_upload_heap();
@@ -1403,6 +1403,11 @@ private:
 			return m_storage_aspect;
 		}
 
+		u32 layers() const
+		{
+			return info.arrayLayers;
+		}
+
 		void push_layout(VkCommandBuffer cmd, VkImageLayout layout)
 		{
 			m_layout_stack.push(current_layout);
@@ -1457,32 +1462,37 @@ private:
 
 		image_view(VkDevice dev, vk::image* resource,
 			const VkComponentMapping mapping = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
-			const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1})
+			const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}, VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_MAX_ENUM)
 			: m_device(dev), m_resource(resource)
 		{
-			info.format = resource->info.format;
-			info.image = resource->value;
-			info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			info.components = mapping;
+			info.format           = resource->info.format;
+			info.image            = resource->value;
+			info.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			info.components       = mapping;
 			info.subresourceRange = range;
 
-			switch (resource->info.imageType)
+			if (view_type == VK_IMAGE_VIEW_TYPE_MAX_ENUM)
 			{
-			case VK_IMAGE_TYPE_1D:
-				info.viewType = VK_IMAGE_VIEW_TYPE_1D;
-				break;
-			case VK_IMAGE_TYPE_2D:
-				if (resource->info.flags == VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
-					info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-				else
-					info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-				break;
-			case VK_IMAGE_TYPE_3D:
-				info.viewType = VK_IMAGE_VIEW_TYPE_3D;
-				break;
-			default:
-				ASSUME(0);
-				break;
+				switch (resource->info.imageType)
+				{
+				case VK_IMAGE_TYPE_1D: info.viewType = VK_IMAGE_VIEW_TYPE_1D; break;
+				case VK_IMAGE_TYPE_2D:
+					if (resource->info.flags == VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
+						info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+					else if (resource->info.arrayLayers == 1)
+						info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+					else
+						info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+					break;
+				case VK_IMAGE_TYPE_3D: info.viewType = VK_IMAGE_VIEW_TYPE_3D; break;
+				default: ASSUME(0); break;
+				}
+
+				info.subresourceRange.layerCount = resource->info.arrayLayers;
+			}
+			else
+			{
+				info.viewType = view_type;
 			}
 
 			create_impl();
