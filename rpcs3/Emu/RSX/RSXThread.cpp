@@ -2549,6 +2549,10 @@ namespace rsx
 				break;
 			}
 		}
+		else
+		{
+			value = 1;
+		}
 
 		rsx::reservation_lock<true> lock(sink, 16);
 		vm::_ref<atomic_t<CellGcmReportData>>(sink).store({ timestamp(), value, 0});

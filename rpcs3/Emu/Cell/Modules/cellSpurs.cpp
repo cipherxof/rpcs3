@@ -493,8 +493,8 @@ s32 cellSpursRunJobChain(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChain);
 //s32 cellSpursGetJobPipelineInfo();
 //s32 cellSpursJobSetMaxGrab();
 //s32 cellSpursJobHeaderSetJobbin2Param();
-//s32 cellSpursAddUrgentCommand();
-//s32 cellSpursAddUrgentCall();
+s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChainVm, u64 newCmd);
+s32 cellSpursAddUrgentCall(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChainVm, vm::ptr<u64> commandListVm);
 
 //----------------------------------------------------------------------------
 // SPURS utility functions
@@ -5109,51 +5109,56 @@ s32 cellSpursJobHeaderSetJobbin2Param()
 	return CELL_OK;
 }
 
-s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChain, u64 newCmd)
+s32 cellSpursAddUrgentCommand(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChainVm, u64 newCmd)
 {
-	cellSpurs.trace("cellSpursAddUrgentCommand(jobChain=*0x%x, newCmd=0x%llx)", jobChain, newCmd);
-
-	if (!jobChain)
+	if (!jobChainVm)
 		return CELL_SPURS_JOB_ERROR_NULL_POINTER;
 
-	if (!jobChain.aligned())
+	if (!jobChainVm.aligned(128))
 		return CELL_SPURS_JOB_ERROR_ALIGN;
 
-	if (jobChain->workloadId >= CELL_SPURS_MAX_WORKLOAD2)
+	CellSpursJobChain& jobChain = *jobChainVm;
+	if (jobChain.workloadId >= 32)
 		return CELL_SPURS_JOB_ERROR_INVAL;
 
-	s32 result = CELL_OK;
-
-	vm::reservation_op(ppu, vm::unsafe_ptr_cast<CellSpursJobChain_x00>(jobChain), [&](CellSpursJobChain_x00& jch)
+	const size_t max_num_urgent_cmds = 1;
+	for (;;)
 	{
-		for (auto& cmd : jch.urgentCmds)
+		size_t currIdx;
+		for (currIdx = 0; currIdx < max_num_urgent_cmds; currIdx++)
 		{
-			if (!cmd)
+			be_t<u64> currCmd   = jobChain.urgentCmds[currIdx].load();
+			u64 cmdToStore      = currCmd;
+			bool foundEmptySlot = false;
+			if (currCmd == 0)
 			{
-				cmd = newCmd;
-				return true;
+				if (currIdx != 0 && jobChain.urgentCmds[currIdx - 1].load() == 0)
+					break; //restart search, someone emptied out the previous one
+
+				foundEmptySlot = true;
+				cmdToStore     = newCmd;
 			}
+			if (!jobChain.urgentCmds[currIdx].compare_exchange(currCmd, cmdToStore))
+				break; //someone changed this one, restart search
+
+			if (foundEmptySlot)
+				return CELL_OK; //success
 		}
 
-		// Considered unlikely so unoptimized
-		result = CELL_SPURS_JOB_ERROR_BUSY;
-		return false;
-	});
-
-	return result;
+		if (currIdx >= max_num_urgent_cmds)
+			return CELL_SPURS_JOB_ERROR_BUSY; //exausted all slots
+	}
 }
 
-s32 cellSpursAddUrgentCall(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChain, vm::ptr<u64> commandList)
+s32 cellSpursAddUrgentCall(ppu_thread& ppu, vm::ptr<CellSpursJobChain> jobChainVm, vm::ptr<u64> commandListVm)
 {
-	cellSpurs.trace("cellSpursAddUrgentCall(jobChain=*0x%x, commandList=*0x%x)", jobChain, commandList);
-
-	if (!commandList)
+	if (!jobChainVm)
 		return CELL_SPURS_JOB_ERROR_NULL_POINTER;
 
-	if (!commandList.aligned())
+	if (!commandListVm.aligned(8))
 		return CELL_SPURS_JOB_ERROR_ALIGN;
 
-	return cellSpursAddUrgentCommand(ppu, jobChain, commandList.addr() | CELL_SPURS_JOB_OPCODE_CALL);
+	return cellSpursAddUrgentCommand(ppu, jobChainVm, (commandListVm.addr() & 0xFFFFFFF8u) | 4);
 }
 
 s32 cellSpursBarrierInitialize(vm::ptr<CellSpursTaskset> taskset, vm::ptr<CellSpursBarrier> barrier, u32 total)
@@ -5353,8 +5358,8 @@ DECLARE(ppu_module_manager::cellSpurs)("cellSpurs", []()
 	REG_FUNC(cellSpurs, cellSpursJobHeaderSetJobbin2Param);
 
 	REG_FUNC(cellSpurs, cellSpursWakeUp);
-	REG_FUNC(cellSpurs, cellSpursAddUrgentCommand);
-	REG_FUNC(cellSpurs, cellSpursAddUrgentCall);
+	REG_FUNC(cellSpurs, cellSpursAddUrgentCommand).flag(MFF_FORCED_HLE);
+	REG_FUNC(cellSpurs, cellSpursAddUrgentCall).flag(MFF_FORCED_HLE);
 
 	REG_FUNC(cellSpurs, cellSpursBarrierInitialize);
 	REG_FUNC(cellSpurs, cellSpursBarrierGetTasksetAddress);
