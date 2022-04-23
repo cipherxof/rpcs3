@@ -33,36 +33,36 @@ static thread_local u32 s_tls_thread_slot = -1;
 // Suspend counter stamp
 static thread_local u64 s_tls_sctr = -1;
 
-extern thread_local void(*g_tls_log_control)(const char* fmt, u64 progress);
+extern thread_local void (*g_tls_log_control)(const char* fmt, u64 progress);
 
 template <>
 void fmt_class_string<cpu_flag>::format(std::string& out, u64 arg)
 {
 	format_enum(out, arg, [](cpu_flag f)
-	{
-		switch (f)
 		{
-		case cpu_flag::stop: return "STOP";
-		case cpu_flag::exit: return "EXIT";
-		case cpu_flag::wait: return "w";
-		case cpu_flag::temp: return "t";
-		case cpu_flag::pause: return "p";
-		case cpu_flag::suspend: return "s";
-		case cpu_flag::ret: return "ret";
-		case cpu_flag::signal: return "sig";
-		case cpu_flag::memory: return "mem";
-		case cpu_flag::pending: return "pend";
-		case cpu_flag::dbg_global_pause: return "G-PAUSE";
-		case cpu_flag::dbg_pause: return "PAUSE";
-		case cpu_flag::dbg_step: return "STEP";
-		case cpu_flag::__bitset_enum_max: break;
-		}
+			switch (f)
+			{
+			case cpu_flag::stop: return "STOP";
+			case cpu_flag::exit: return "EXIT";
+			case cpu_flag::wait: return "w";
+			case cpu_flag::temp: return "t";
+			case cpu_flag::pause: return "p";
+			case cpu_flag::suspend: return "s";
+			case cpu_flag::ret: return "ret";
+			case cpu_flag::signal: return "sig";
+			case cpu_flag::memory: return "mem";
+			case cpu_flag::pending: return "pend";
+			case cpu_flag::dbg_global_pause: return "G-PAUSE";
+			case cpu_flag::dbg_pause: return "PAUSE";
+			case cpu_flag::dbg_step: return "STEP";
+			case cpu_flag::__bitset_enum_max: break;
+			}
 
-		return unknown;
-	});
+			return unknown;
+		});
 }
 
-template<>
+template <>
 void fmt_class_string<bs_t<cpu_flag>>::format(std::string& out, u64 arg)
 {
 	format_bitset(out, arg, "[", "|", "]", &fmt_class_string<cpu_flag>::format);
@@ -94,7 +94,7 @@ struct cpu_prof
 		{
 			freq.clear();
 			samples = 0;
-			idle = 0;
+			idle    = 0;
 		}
 
 		// Print info
@@ -294,16 +294,16 @@ namespace cpu_counter
 		for (u64 i = 0;; i++)
 		{
 			const auto [bits, ok] = s_cpu_bits.fetch_op([](u128& bits)
-			{
-				if (~bits) [[likely]]
 				{
-					// Set lowest clear bit
-					bits |= bits + 1;
-					return true;
-				}
+					if (~bits) [[likely]]
+					{
+						// Set lowest clear bit
+						bits |= bits + 1;
+						return true;
+					}
 
-				return false;
-			});
+					return false;
+				});
 
 			if (ok) [[likely]]
 			{
@@ -336,9 +336,9 @@ namespace cpu_counter
 	static void remove_cpu_bit(u32 bit)
 	{
 		s_cpu_bits.atomic_op([=](u128& val)
-		{
-			val &= ~(u128{1} << (bit % 128));
-		});
+			{
+				val &= ~(u128{1} << (bit % 128));
+			});
 	}
 
 	void remove(cpu_thread* _this) noexcept
@@ -402,7 +402,7 @@ namespace cpu_counter
 
 		return copy;
 	}
-}
+} // namespace cpu_counter
 
 void cpu_thread::operator()()
 {
@@ -447,27 +447,27 @@ void cpu_thread::operator()()
 	s_cpu_counter++;
 
 	atomic_wait_engine::set_notify_callback([](const void*, u64 progress)
-	{
-		static thread_local bool wait_set = false;
-
-		cpu_thread* _cpu = get_current_cpu_thread();
-
-		// Wait flag isn't set asynchronously so this should be thread-safe
-		if (progress == 0 && _cpu->state.none_of(cpu_flag::wait + cpu_flag::temp))
 		{
-			// Operation just started and syscall is imminent
-			_cpu->state += cpu_flag::wait + cpu_flag::temp;
-			wait_set = true;
-			return;
-		}
+			static thread_local bool wait_set = false;
 
-		if (progress == umax && std::exchange(wait_set, false))
-		{
-			// Operation finished: need to clean wait flag
-			ensure(!_cpu->check_state());
-			return;
-		}
-	});
+			cpu_thread* _cpu = get_current_cpu_thread();
+
+			// Wait flag isn't set asynchronously so this should be thread-safe
+			if (progress == 0 && _cpu->state.none_of(cpu_flag::wait + cpu_flag::temp))
+			{
+				// Operation just started and syscall is imminent
+				_cpu->state += cpu_flag::wait + cpu_flag::temp;
+				wait_set = true;
+				return;
+			}
+
+			if (progress == umax && std::exchange(wait_set, false))
+			{
+				// Operation finished: need to clean wait flag
+				ensure(!_cpu->check_state());
+				return;
+			}
+		});
 
 	static thread_local struct thread_cleanup_t
 	{
@@ -488,7 +488,7 @@ void cpu_thread::operator()()
 
 			atomic_wait_engine::set_notify_callback(nullptr);
 
-			g_tls_log_control = [](const char*, u64){};
+			g_tls_log_control = [](const char*, u64) {};
 
 			if (s_tls_thread_slot != umax)
 			{
@@ -517,7 +517,7 @@ void cpu_thread::operator()()
 	} cleanup;
 
 	cleanup._this = this;
-	cleanup.name = thread_ctrl::get_name();
+	cleanup.name  = thread_ctrl::get_name();
 
 	// Check thread status
 	while (!(state & cpu_flag::exit) && thread_ctrl::state() != thread_state::aborting)
@@ -594,126 +594,130 @@ void cpu_thread::cpu_wait(bs_t<cpu_flag> old)
 
 bool cpu_thread::check_state() noexcept
 {
+
 	bool cpu_sleep_called = false;
-	bool cpu_can_stop = true;
+	bool cpu_can_stop     = true;
 	bool escape, retval;
+	bool cpu_flag_memory = false;
 
 	while (true)
 	{
+
 		// Process all flags in a single atomic op
 		bs_t<cpu_flag> state1;
 		const auto state0 = state.fetch_op([&](bs_t<cpu_flag>& flags)
-		{
-			bool store = false;
+									 {
+										 bool store = false;
 
-			if (flags & cpu_flag::pause && s_tls_thread_slot != umax)
-			{
-				// Save value before state is saved and cpu_flag::wait is observed
-				if (s_tls_sctr == umax)
-				{
-					u64 ctr = g_suspend_counter;
+										 if (flags & cpu_flag::pause && s_tls_thread_slot != umax)
+										 {
+											 // Save value before state is saved and cpu_flag::wait is observed
+											 if (s_tls_sctr == umax)
+											 {
+												 u64 ctr = g_suspend_counter;
 
-					if (flags & cpu_flag::wait)
-					{
-						if ((ctr & 3) == 2)
-						{
-							s_tls_sctr = ctr;
-						}
-					}
-					else
-					{
-						s_tls_sctr = ctr;
-					}
-				}
-			}
-			else
-			{
-				// Cleanup after asynchronous remove()
-				if (flags & cpu_flag::pause && s_tls_thread_slot == umax)
-				{
-					flags -= cpu_flag::pause;
-					store = true;
-				}
+												 if (flags & cpu_flag::wait)
+												 {
+													 if ((ctr & 3) == 2)
+													 {
+														 s_tls_sctr = ctr;
+													 }
+												 }
+												 else
+												 {
+													 s_tls_sctr = ctr;
+												 }
+											 }
+										 }
+										 else
+										 {
+											 // Cleanup after asynchronous remove()
+											 if (flags & cpu_flag::pause && s_tls_thread_slot == umax)
+											 {
+												 flags -= cpu_flag::pause;
+												 store = true;
+											 }
 
-				s_tls_sctr = -1;
-			}
+											 s_tls_sctr = -1;
+										 }
 
-			if (flags & cpu_flag::temp) [[unlikely]]
-			{
-				// Sticky flag, indicates check_state() is not allowed to return true
-				flags -= cpu_flag::temp;
-				flags -= cpu_flag::wait;
-				cpu_can_stop = false;
-				store = true;
-			}
+										 if (flags & cpu_flag::temp) [[unlikely]]
+										 {
+											 // Sticky flag, indicates check_state() is not allowed to return true
+											 flags -= cpu_flag::temp;
+											 flags -= cpu_flag::wait;
+											 cpu_can_stop = false;
+											 store        = true;
+										 }
 
-			if (cpu_can_stop && flags & cpu_flag::signal)
-			{
-				flags -= cpu_flag::signal;
-				cpu_sleep_called = false;
-				store = true;
-			}
+										 if (cpu_can_stop && flags & cpu_flag::signal)
+										 {
+											 flags -= cpu_flag::signal;
+											 cpu_sleep_called = false;
+											 store            = true;
+										 }
 
-			// Can't process dbg_step if we only paused temporarily
-			if (cpu_can_stop && flags & cpu_flag::dbg_step)
-			{
-				if (u32 pc = get_pc(), *pc2 = get_pc2(); pc != umax && pc2)
-				{
-					if (pc != *pc2)
-					{
-						flags -= cpu_flag::dbg_step;
-						flags += cpu_flag::dbg_pause;
-						store = true;
-					}
-				}
-				else
-				{
-					// Can't test, ignore flag
-					flags -= cpu_flag::dbg_step;
-					store = true;
-				}
-			}
+										 // Can't process dbg_step if we only paused temporarily
+										 if (cpu_can_stop && flags & cpu_flag::dbg_step)
+										 {
+											 if (u32 pc = get_pc(), *pc2 = get_pc2(); pc != umax && pc2)
+											 {
+												 if (pc != *pc2)
+												 {
+													 flags -= cpu_flag::dbg_step;
+													 flags += cpu_flag::dbg_pause;
+													 store = true;
+												 }
+											 }
+											 else
+											 {
+												 // Can't test, ignore flag
+												 flags -= cpu_flag::dbg_step;
+												 store = true;
+											 }
+										 }
 
-			// Atomically clean wait flag and escape
-			if (!(flags & (cpu_flag::exit + cpu_flag::ret + cpu_flag::stop)))
-			{
-				// Check pause flags which hold thread inside check_state (ignore suspend/debug flags on cpu_flag::temp)
-				if (flags & (cpu_flag::pause + cpu_flag::memory) || (cpu_can_stop && flags & (cpu_flag::dbg_global_pause + cpu_flag::dbg_pause + cpu_flag::suspend)))
-				{
-					if (!(flags & cpu_flag::wait))
-					{
-						flags += cpu_flag::wait;
-						store = true;
-					}
+										 // Atomically clean wait flag and escape
+										 if (!(flags & (cpu_flag::exit + cpu_flag::ret + cpu_flag::stop)))
+										 {
+											 // Check pause flags which hold thread inside check_state (ignore suspend/debug flags on cpu_flag::temp)
+											 if (flags & (cpu_flag::pause + cpu_flag::memory) || (cpu_can_stop && flags & (cpu_flag::dbg_global_pause + cpu_flag::dbg_pause + cpu_flag::suspend)))
+											 {
+												 if (!(flags & cpu_flag::wait))
+												 {
+													 flags += cpu_flag::wait;
+													 store = true;
+												 }
 
-					escape = false;
-					state1 = flags;
-					return store;
-				}
+												 escape = false;
+												 state1 = flags;
+												 return store;
+											 }
 
-				if (flags & cpu_flag::wait)
-				{
-					flags -= cpu_flag::wait;
-					store = true;
-				}
+											 if (flags & cpu_flag::wait)
+											 {
+												 flags -= cpu_flag::wait;
+												 store = true;
+											 }
 
-				retval = false;
-			}
-			else
-			{
-				if (cpu_can_stop && !(flags & cpu_flag::wait))
-				{
-					flags += cpu_flag::wait;
-					store = true;
-				}
+											 retval = false;
+										 }
+										 else
+										 {
+											 if (cpu_can_stop && !(flags & cpu_flag::wait))
+											 {
+												 flags += cpu_flag::wait;
+												 store = true;
+											 }
 
-				retval = cpu_can_stop;
-			}
+											 retval = cpu_can_stop;
+										 }
 
-			escape = true;
-			state1 = flags;
-			return store;
-		}).first;
+										 escape = true;
+										 state1 = flags;
+										 return store;
+									 })
+		                        .first;
 
 		if (escape)
 		{
@@ -722,13 +726,11 @@ bool cpu_thread::check_state() noexcept
 				// Restore thread in the suspend list
 				cpu_counter::add(this);
 			}
-
 			if ((state0 & (cpu_flag::pending + cpu_flag::temp)) == cpu_flag::pending)
 			{
 				// Execute pending work
 				cpu_work();
 			}
-
 			if (retval)
 			{
 				cpu_on_stop();
@@ -737,7 +739,18 @@ bool cpu_thread::check_state() noexcept
 			ensure(cpu_can_stop || !retval);
 			return retval;
 		}
+		if (state0 & cpu_flag::memory)
+		{
+			if (auto& ptr = vm::g_tls_locked)
+			{
+				ptr->compare_and_swap(this, nullptr);
+				ptr = nullptr;
+			}
 
+			cpu_flag_memory = true;
+			state -= cpu_flag::memory;
+		}
+		state += cpu_flag::memory;
 		if (cpu_can_stop && !cpu_sleep_called && state0 & cpu_flag::suspend)
 		{
 			cpu_sleep();
@@ -751,7 +764,6 @@ bool cpu_thread::check_state() noexcept
 
 			continue;
 		}
-
 		if (state0 & ((cpu_can_stop ? cpu_flag::suspend : cpu_flag::dbg_pause) + cpu_flag::dbg_global_pause + cpu_flag::dbg_pause))
 		{
 			if (state0 & cpu_flag::dbg_pause)
@@ -892,8 +904,6 @@ u32* cpu_thread::get_pc2()
 	return nullptr;
 }
 
-std::shared_ptr<CPUDisAsm> make_disasm(const cpu_thread* cpu);
-
 std::string cpu_thread::dump_all() const
 {
 	std::string ret = cpu_thread::dump_misc();
@@ -903,24 +913,6 @@ std::string cpu_thread::dump_all() const
 	ret += dump_regs();
 	ret += '\n';
 	ret += dump_callstack();
-	ret += '\n';
-
-	if (u32 cur_pc = get_pc(); cur_pc != umax)
-	{
-		// Dump a snippet of currently executed code (may be unreliable with non-static-interpreter decoders)
-		auto disasm = make_disasm(this);
-
-		const auto rsx = try_get<rsx::thread>();
-
-		for (u32 i = (rsx ? rsx->try_get_pc_of_x_cmds_backwards(20, cur_pc).second : cur_pc - 4 * 20), count = 0; count < 30; count++)
-		{
-			u32 advance = disasm->disasm(i);
-			ret += disasm->last_opcode;
-			i += std::max(advance, 4u);
-			disasm->dump_pc = i;
-			ret += '\n';
-		}
-	}
 
 	return ret;
 }
@@ -951,7 +943,11 @@ std::vector<std::pair<u32, u32>> cpu_thread::dump_callstack_list() const
 
 std::string cpu_thread::dump_misc() const
 {
-	return fmt::format("Type: %s\n" "State: %s\n", id_type() == 1 ? "PPU" : id_type() == 2 ? "SPU" : "CPU", state.load());
+	return fmt::format("Type: %s\n"
+					   "State: %s\n",
+		id_type() == 1 ? "PPU" : id_type() == 2 ? "SPU" :
+                                                  "CPU",
+		state.load());
 }
 
 bool cpu_thread::suspend_work::push(cpu_thread* _this) noexcept
@@ -976,8 +972,7 @@ bool cpu_thread::suspend_work::push(cpu_thread* _this) noexcept
 			s_cpu_lock.lock_unlock();
 			continue;
 		}
-	}
-	while (!s_pushed.compare_and_swap_test(next, this));
+	} while (!s_pushed.compare_and_swap_test(next, this));
 
 	if (!next)
 	{
@@ -991,15 +986,15 @@ bool cpu_thread::suspend_work::push(cpu_thread* _this) noexcept
 
 		// Try to prefetch cpu->state earlier
 		copy = cpu_counter::for_all_cpu(copy, [&](cpu_thread* cpu)
-		{
-			if (cpu != _this)
 			{
-				utils::prefetch_write(&cpu->state);
-				return true;
-			}
+				if (cpu != _this)
+				{
+					utils::prefetch_write(&cpu->state);
+					return true;
+				}
 
-			return false;
-		});
+				return false;
+			});
 
 		// Initialization (first increment)
 		g_suspend_counter += 2;
@@ -1008,28 +1003,28 @@ bool cpu_thread::suspend_work::push(cpu_thread* _this) noexcept
 		u128 copy2 = copy;
 
 		copy = cpu_counter::for_all_cpu(copy, [&](cpu_thread* cpu, u32 /*index*/)
-		{
-			if (cpu->state.fetch_add(cpu_flag::pause) & cpu_flag::wait)
 			{
-				// Clear bits as long as wait flag is set
-				return false;
-			}
-
-			return true;
-		});
-
-		while (copy)
-		{
-			// Check only CPUs which haven't acknowledged their waiting state yet
-			copy = cpu_counter::for_all_cpu(copy, [&](cpu_thread* cpu, u32 /*index*/)
-			{
-				if (cpu->state & cpu_flag::wait)
+				if (cpu->state.fetch_add(cpu_flag::pause) & cpu_flag::wait)
 				{
+					// Clear bits as long as wait flag is set
 					return false;
 				}
 
 				return true;
 			});
+
+		while (copy)
+		{
+			// Check only CPUs which haven't acknowledged their waiting state yet
+			copy = cpu_counter::for_all_cpu(copy, [&](cpu_thread* cpu, u32 /*index*/)
+				{
+					if (cpu->state & cpu_flag::wait)
+					{
+						return false;
+					}
+
+					return true;
+				});
 
 			if (!copy)
 			{
@@ -1062,8 +1057,7 @@ bool cpu_thread::suspend_work::push(cpu_thread* _this) noexcept
 				// Fill priority range
 				min_prio = std::min<u8>(min_prio, head->prio);
 				max_prio = std::max<u8>(max_prio, head->prio);
-			}
-			while (prev);
+			} while (prev);
 		}
 
 		// Execute prefetch hint(s)
@@ -1076,10 +1070,10 @@ bool cpu_thread::suspend_work::push(cpu_thread* _this) noexcept
 		}
 
 		cpu_counter::for_all_cpu(copy2, [&](cpu_thread* cpu)
-		{
-			utils::prefetch_write(&cpu->state);
-			return true;
-		});
+			{
+				utils::prefetch_write(&cpu->state);
+				return true;
+			});
 
 		// Execute all stored workload
 		for (s32 prio = max_prio; prio >= min_prio; prio--)
@@ -1099,10 +1093,10 @@ bool cpu_thread::suspend_work::push(cpu_thread* _this) noexcept
 		ensure(g_suspend_counter++ & 1);
 
 		cpu_counter::for_all_cpu(copy2, [&](cpu_thread* cpu)
-		{
-			cpu->state -= cpu_flag::pause;
-			return true;
-		});
+			{
+				cpu->state -= cpu_flag::pause;
+				return true;
+			});
 	}
 	else
 	{

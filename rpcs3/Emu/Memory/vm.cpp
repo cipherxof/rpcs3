@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 #include "vm_locking.h"
 #include "vm_ptr.h"
 #include "vm_ref.h"
@@ -339,38 +339,47 @@ namespace vm
 
 	void passive_lock(cpu_thread& cpu)
 	{
-		bool ok = true;
-
-		if (!g_tls_locked || *g_tls_locked != &cpu) [[unlikely]]
+		if (g_tls_locked && *g_tls_locked == &cpu) [[unlikely]]
 		{
-			_register_lock(&cpu);
-
-			if (cpu.state & cpu_flag::memory) [[likely]]
+			if (cpu.state & cpu_flag::wait)
 			{
-				cpu.state -= cpu_flag::memory;
+				while (true)
+				{
+					g_mutex.lock_unlock();
+					cpu.state -= cpu_flag::wait + cpu_flag::memory;
+
+					if (g_mutex.is_lockable()) [[likely]]
+					{
+						return;
+					}
+
+					cpu.state += cpu_flag::wait;
+				}
 			}
 
-			if (g_mutex.is_lockable())
+			return;
+		}
+
+		if (cpu.state & cpu_flag::memory)
+		{
+			cpu.state -= cpu_flag::memory;
+		}
+
+		if (g_mutex.is_lockable()) [[likely]]
+		{
+			// Optimistic path (hope that mutex is not exclusively locked)
+			_register_lock(&cpu);
+
+			if (g_mutex.is_lockable()) [[likely]]
 			{
 				return;
 			}
 
-			ok = false;
+			passive_unlock(cpu);
 		}
 
-		if (!ok || cpu.state & cpu_flag::memory)
-		{
-			while (true)
-			{
-				g_mutex.lock_unlock();
-				cpu.state -= cpu_flag::memory;
-
-				if (g_mutex.is_lockable()) [[likely]]
-				{
-					return;
-				}
-			}
-		}
+		::reader_lock lock(g_mutex);
+		_register_lock(&cpu);
 	}
 
 	void passive_unlock(cpu_thread& cpu)
@@ -528,12 +537,10 @@ namespace vm
 
 			for (auto lock = g_locks.cbegin(), end = lock + g_cfg.core.ppu_threads; lock != end; lock++)
 			{
-				if (auto ptr = +*lock)
+				cpu_thread* ptr;
+				while ((ptr = *lock) && !(ptr->state & cpu_flag::wait))
 				{
-					while (!(ptr->state & cpu_flag::wait))
-					{
-						utils::pause();
-					}
+					_mm_pause();
 				}
 			}
 		}
