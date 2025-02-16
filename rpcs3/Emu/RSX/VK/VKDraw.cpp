@@ -177,8 +177,17 @@ void VKGSRender::update_draw_state()
 		// R is implementation dependent and has to be derived empirically for supported implementations.
 		// Lucky for us, only NVIDIA currently supports fixed-point 24-bit depth buffers.
 
-		const auto polygon_offset_scale = rsx::method_registers.poly_offset_scale();
+		auto polygon_offset_scale = rsx::method_registers.poly_offset_scale();
 		auto polygon_offset_bias = rsx::method_registers.poly_offset_bias();
+
+		if (polygon_offset_scale == 0)
+		{
+			polygon_offset_scale = polygon_offset_bias * 0.5f;
+			if (polygon_offset_scale < 0)
+				polygon_offset_scale -= 0.05f;
+			else if (polygon_offset_scale > 0)
+				polygon_offset_scale += 0.05f;
+		}
 
 		if (m_draw_fbo->depth_format() == VK_FORMAT_D24_UNORM_S8_UINT && is_NVIDIA(vk::get_chip_family()))
 		{
