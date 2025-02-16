@@ -6430,7 +6430,7 @@ public:
 			const auto a = value<f32[4]>(ci->getOperand(0));
 			const auto b = value<f32[4]>(ci->getOperand(1));
 
-			if (g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::approximate)
+			if (g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::approximate || g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::relaxed)
 			{
 				if (a.value == b.value)
 				{
@@ -6458,7 +6458,7 @@ public:
 
 		// This causes issues in LBP 1(first platform on first temple level doesn't come down when grabbed)
 		// Presumably 1/x might result in Zero/NaN when a/x doesn't
-		if (g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::relaxed)
+		/*if (g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::relaxed)
 		{
 			auto full_fm_accurate = [&](const auto& a, const auto& div)
 			{
@@ -6487,7 +6487,7 @@ public:
 				erase_stores(one, a);
 				return;
 			}
-		}
+		}*/
 
 		set_vr(op.rt, fm(a, b));
 	}
@@ -6799,7 +6799,7 @@ public:
 			const auto b = value<f32[4]>(ci->getOperand(1));
 			const auto c = value<f32[4]>(ci->getOperand(2));
 
-			if (g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::approximate)
+			if (g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::approximate || g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::relaxed)
 			{
 				const auto ma = sext<s32[4]>(fcmp_uno(a != fsplat<f32[4]>(0.)));
 				const auto mb = sext<s32[4]>(fcmp_uno(b != fsplat<f32[4]>(0.)));
@@ -6992,7 +6992,7 @@ public:
 			return;
 
 		// NFS Most Wanted doesn't like this
-		if (g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::relaxed)
+		/*if (g_cfg.core.spu_xfloat_accuracy == xfloat_accuracy::relaxed)
 		{
 			// Those patterns are not safe vs non optimization as inaccuracy from spu_re will spread with early fm before the accuracy is improved
 
@@ -7024,7 +7024,7 @@ public:
 					}
 				}
 			}
-		}
+		}*/
 
 		// Not all patterns can be simplified because of block scope
 		// Those todos don't necessarily imply a missing pattern
