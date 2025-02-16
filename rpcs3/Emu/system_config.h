@@ -39,11 +39,11 @@ struct cfg_root : cfg::node
 		cfg::_int<0, 16> spu_delay_penalty{ this, "SPU delay penalty", 3 }; // Number of milliseconds to block a thread if a virtual 'core' isn't free
 		cfg::_bool spu_loop_detection{ this, "SPU loop detection", false }; // Try to detect wait loops and trigger thread yield
 		cfg::_int<1, 6> max_spurs_threads{ this, "Max SPURS Threads", 6, true }; // HACK. If less then 6, max number of running SPURS threads in each thread group.
-		cfg::_enum<spu_block_size_type> spu_block_size{ this, "SPU Block Size", spu_block_size_type::safe };
+		cfg::_enum<spu_block_size_type> spu_block_size{ this, "SPU Block Size", spu_block_size_type::giga };
 		cfg::_bool spu_accurate_dma{ this, "Accurate SPU DMA", false };
 		cfg::_bool spu_accurate_reservations{ this, "Accurate SPU Reservations", true };
 		cfg::_bool accurate_cache_line_stores{ this, "Accurate Cache Line Stores", false };
-		cfg::_bool rsx_accurate_res_access{this, "Accurate RSX reservation access", false, true};
+		cfg::_bool rsx_accurate_res_access{this, "Accurate RSX reservation access", true, true};
 
 		struct fifo_setting : public cfg::_enum<rsx_fifo_mode>
 		{
@@ -56,15 +56,15 @@ struct cfg_root : cfg::node
 			}
 		};
 
-		fifo_setting rsx_fifo_accuracy{this, "RSX FIFO Accuracy", rsx_fifo_mode::fast };
+		fifo_setting rsx_fifo_accuracy{this, "RSX FIFO Accuracy", rsx_fifo_mode::atomic };
 		cfg::_bool spu_verification{ this, "SPU Verification", true }; // Should be enabled
 		cfg::_bool spu_cache{ this, "SPU Cache", true };
 		cfg::_bool spu_prof{ this, "SPU Profiler", false };
 		cfg::uint<0, 16> mfc_transfers_shuffling{ this, "MFC Commands Shuffling Limit", 0 };
 		cfg::uint<0, 10000> mfc_transfers_timeout{ this, "MFC Commands Timeout", 0, true };
 		cfg::_bool mfc_shuffling_in_steps{ this, "MFC Commands Shuffling In Steps", false, true };
-		cfg::_enum<tsx_usage> enable_TSX{ this, "Enable TSX", enable_tsx_by_default() ? tsx_usage::enabled : tsx_usage::disabled }; // Enable TSX. Forcing this on Haswell/Broadwell CPUs should be used carefully
-		cfg::_enum<xfloat_accuracy> spu_xfloat_accuracy{ this, "XFloat Accuracy", xfloat_accuracy::approximate, false };
+		cfg::_enum<tsx_usage> enable_TSX{ this, "Enable TSX", tsx_usage::disabled }; 
+		cfg::_enum<xfloat_accuracy> spu_xfloat_accuracy{ this, "XFloat Accuracy", xfloat_accuracy::relaxed, false };
 		cfg::_int<-1, 14> ppu_128_reservations_loop_max_length{ this, "Accurate PPU 128-byte Reservation Op Max Length", 0, true }; // -1: Always accurate, 0: Never accurate, 1-14: max accurate loop length
 		cfg::_int<-64, 64> stub_ppu_traps{ this, "Stub PPU Traps", 0, true }; // Hack, skip PPU traps for rare cases where the trap is continueable (specify relative instructions to skip)
 		cfg::_bool precise_spu_verification{ this, "Precise SPU Verification", false }; // Disables use of xorsum based spu verification if enabled.
@@ -127,9 +127,9 @@ struct cfg_root : cfg::node
 
 		cfg::_enum<video_resolution> resolution{ this, "Resolution", video_resolution::_720p };
 		cfg::_enum<video_aspect> aspect_ratio{ this, "Aspect ratio", video_aspect::_16_9 };
-		cfg::_enum<frame_limit_type> frame_limit{ this, "Frame limit", frame_limit_type::_auto, true };
+		cfg::_enum<frame_limit_type> frame_limit{ this, "Frame limit", frame_limit_type::_60, true };
 		cfg::_float<0, 1000> second_frame_limit{ this, "Second Frame Limit", 0, true }; // 0 disables its effect
-		cfg::_enum<msaa_level> antialiasing_level{ this, "MSAA", msaa_level::_auto };
+		cfg::_enum<msaa_level> antialiasing_level{ this, "MSAA", msaa_level::none };
 		cfg::_enum<shader_mode> shadermode{ this, "Shader Mode", shader_mode::async_recompiler };
 		cfg::_enum<gpu_preset_level> shader_precision{ this, "Shader Precision", gpu_preset_level::high };
 
@@ -147,7 +147,7 @@ struct cfg_root : cfg::node
 		cfg::_bool stretch_to_display_area{ this, "Stretch To Display Area", false, true };
 		cfg::_bool force_high_precision_z_buffer{ this, "Force High Precision Z buffer" };
 		cfg::_bool strict_rendering_mode{ this, "Strict Rendering Mode" };
-		cfg::_bool disable_zcull_queries{ this, "Disable ZCull Occlusion Queries", false, true };
+		cfg::_bool disable_zcull_queries{ this, "Disable ZCull Occlusion Queries", true, true };
 		cfg::_bool disable_video_output{ this, "Disable Video Output", false, true };
 		cfg::_bool disable_vertex_cache{ this, "Disable Vertex Cache", false };
 		cfg::_bool disable_FIFO_reordering{ this, "Disable FIFO Reordering", false };
@@ -158,7 +158,7 @@ struct cfg_root : cfg::node
 		cfg::_bool full_rgb_range_output{ this, "Use full RGB output range", true, true }; // Video out dynamic range
 		cfg::_bool strict_texture_flushing{ this, "Strict Texture Flushing", false };
 		cfg::_bool multithreaded_rsx{ this, "Multithreaded RSX", false };
-		cfg::_bool relaxed_zcull_sync{ this, "Relaxed ZCULL Sync", false };
+		cfg::_bool relaxed_zcull_sync{ this, "Relaxed ZCULL Sync", true };
 		cfg::_bool force_hw_MSAA_resolve{ this, "Force Hardware MSAA Resolve", false, true };
 		cfg::_enum<stereo_render_mode_options> stereo_render_mode{ this, "3D Display Mode", stereo_render_mode_options::disabled };
 		cfg::_bool debug_program_analyser{ this, "Debug Program Analyser", false };
