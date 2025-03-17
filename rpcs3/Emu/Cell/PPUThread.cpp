@@ -3592,7 +3592,7 @@ static bool ppu_store_reservation(ppu_thread& ppu, u32 addr, u64 reg_value)
 
 			if (notify)
 			{
-				if (ppu.res_notify_time == get_resrv_waiters_count(notify))
+				if (ppu.res_notify_time == (vm::reservation_acquire(notify) & -128))
 				{
 					ppu.state += cpu_flag::wait;
 					vm::reservation_notifier(notify).notify_all();
@@ -3634,7 +3634,7 @@ static bool ppu_store_reservation(ppu_thread& ppu, u32 addr, u64 reg_value)
 	// And on failure it has some time to do something else
 	if (notify && ((addr ^ notify) & -128))
 	{
-		if (ppu.res_notify_time == (get_resrv_waiters_count(notify) & -128))
+		if (ppu.res_notify_time == (vm::reservation_acquire(notify) & -128))
 		{
 			ppu.state += cpu_flag::wait;
 			vm::reservation_notifier(notify).notify_all();

@@ -2232,8 +2232,8 @@ void lv2_obj::notify_all() noexcept
 
 		if (cpu != &g_to_notify)
 		{
-			/*const auto res_start = vm::reservation_acquire(0) & -128;
-			const auto res_end = vm::reservation_acquire(umax) & -128;
+			const auto res_start = &vm::reservation_notifier(0);
+			const auto res_end = &vm::reservation_notifier(umax);
 
 			if (cpu >= res_start && cpu <= res_end)
 			{
@@ -2243,7 +2243,7 @@ void lv2_obj::notify_all() noexcept
 			{
 				// Note: by the time of notification the thread could have been deallocated which is why the direct function is used
 				atomic_wait_engine::notify_one(cpu);
-			}*/
+			}
 		}
 	}
 

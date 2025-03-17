@@ -4758,13 +4758,6 @@ bool spu_thread::process_mfc_cmd()
 						vm::reservation_notifier(addr).wait(rtime, atomic_wait_timeout{50'000});
 						get_resrv_waiters_count(addr)--;
 
-						if (get_resrv_waiters_count(addr) && vm::reservation_acquire(addr) == rtime + 128)
-						{
-							vm::reservation_notifier(addr).notify_all();
-						}
-
-						deregister_cache_line_waiter(cache_line_waiter_index);
-
 						static_cast<void>(test_stopped());
 
 						// Quick check if there were reservation changes
