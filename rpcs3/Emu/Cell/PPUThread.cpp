@@ -71,6 +71,8 @@
 #include <libkern/OSCacheControl.h>
 #endif
 
+extern atomic_t<u8>& get_resrv_waiters_count(u32 raddr);
+
 extern atomic_t<u64> g_watchdog_hold_ctr;
 
 // Should be of the same type
@@ -2319,9 +2321,9 @@ void ppu_thread::cpu_wait(bs_t<cpu_flag> old)
 	{
 		res_notify = 0;
 
-		if (res_notify_time == vm::reservation_notifier_count_index(addr).second)
+		if (res_notify_time == get_resrv_waiters_count(addr))
 		{
-			vm::reservation_notifier_notify(addr);
+			vm::reservation_notifier(addr).notify_all();
 		}
 	}
 
@@ -3590,10 +3592,10 @@ static bool ppu_store_reservation(ppu_thread& ppu, u32 addr, u64 reg_value)
 
 			if (notify)
 			{
-				if (ppu.res_notify_time == vm::reservation_notifier_count_index(notify).second)
+				if (ppu.res_notify_time == get_resrv_waiters_count(notify))
 				{
 					ppu.state += cpu_flag::wait;
-					vm::reservation_notifier_notify(notify);
+					vm::reservation_notifier(notify).notify_all();
 				}
 				else
 				{
@@ -3607,37 +3609,10 @@ static bool ppu_store_reservation(ppu_thread& ppu, u32 addr, u64 reg_value)
 			{
 				// Try to postpone notification to when PPU is asleep or join notifications on the same address
 				// This also optimizes a mutex - won't notify after lock is aqcuired (prolonging the critical section duration), only notifies on unlock
-				const auto [count, index] = vm::reservation_notifier_count_index(addr);
-
-				switch (count)
+				if (get_resrv_waiters_count(addr))
 				{
-				case 0:
-				{
-					// Nothing to do
-					break;
-				}
-				case 1:
-				{
-					if (!notify)
-					{
-						ppu.res_notify = addr;
-						ppu.res_notify_time = index;
-						break;
-					}
-
-					// Notify both
-					[[fallthrough]];
-				}
-				default:
-				{
-					if (!notify)
-					{
-						ppu.state += cpu_flag::wait;
-					}
-
-					vm::reservation_notifier_notify(addr);
-					break;
-				}
+					ppu.res_notify = addr;
+					ppu.res_notify_time = rtime + 128;
 				}
 			}
 
@@ -3659,10 +3634,10 @@ static bool ppu_store_reservation(ppu_thread& ppu, u32 addr, u64 reg_value)
 	// And on failure it has some time to do something else
 	if (notify && ((addr ^ notify) & -128))
 	{
-		if (ppu.res_notify_time == vm::reservation_notifier_count_index(notify).second)
+		if (ppu.res_notify_time == (get_resrv_waiters_count(notify) & -128))
 		{
 			ppu.state += cpu_flag::wait;
-			vm::reservation_notifier_notify(notify);
+			vm::reservation_notifier(notify).notify_all();
 			static_cast<void>(ppu.test_stopped());
 		}
 

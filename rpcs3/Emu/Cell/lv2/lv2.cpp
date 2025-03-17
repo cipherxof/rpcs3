@@ -1340,13 +1340,13 @@ bool lv2_obj::sleep(cpu_thread& cpu, const u64 timeout)
 		{
 			static_cast<ppu_thread&>(cpu).res_notify = 0;
 
-			if (static_cast<ppu_thread&>(cpu).res_notify_time != vm::reservation_notifier_count_index(addr).second)
+			if (static_cast<ppu_thread&>(cpu).res_notify_time != (vm::reservation_acquire(addr) & -128))
 			{
 				// Ignore outdated notification request
 			}
 			else if (auto it = std::find(g_to_notify, std::end(g_to_notify), std::add_pointer_t<const void>{}); it != std::end(g_to_notify))
 			{
-				*it++ = vm::reservation_notifier_notify(addr, true);
+				*it++ = &vm::reservation_notifier(addr);
 
 				if (it < std::end(g_to_notify))
 				{
@@ -1356,7 +1356,7 @@ bool lv2_obj::sleep(cpu_thread& cpu, const u64 timeout)
 			}
 			else
 			{
-				vm::reservation_notifier_notify(addr);
+				vm::reservation_notifier(addr).notify_all();
 			}
 		}
 	}
@@ -1393,13 +1393,13 @@ bool lv2_obj::awake(cpu_thread* thread, s32 prio)
 		{
 			ppu->res_notify = 0;
 
-			if (ppu->res_notify_time != vm::reservation_notifier_count_index(addr).second)
+			if (ppu->res_notify_time != (vm::reservation_acquire(addr) & -128))
 			{
 				// Ignore outdated notification request
 			}
 			else if (auto it = std::find(g_to_notify, std::end(g_to_notify), std::add_pointer_t<const void>{}); it != std::end(g_to_notify))
 			{
-				*it++ = vm::reservation_notifier_notify(addr, true);
+				*it++ = &vm::reservation_notifier(addr);
 
 				if (it < std::end(g_to_notify))
 				{
@@ -1409,7 +1409,7 @@ bool lv2_obj::awake(cpu_thread* thread, s32 prio)
 			}
 			else
 			{
-				vm::reservation_notifier_notify(addr);
+				vm::reservation_notifier(addr).notify_all();
 			}
 		}
 	}
@@ -2232,8 +2232,8 @@ void lv2_obj::notify_all() noexcept
 
 		if (cpu != &g_to_notify)
 		{
-			const auto res_start = vm::reservation_notifier(0).second;
-			const auto res_end = vm::reservation_notifier(umax).second;
+			/*const auto res_start = vm::reservation_acquire(0) & -128;
+			const auto res_end = vm::reservation_acquire(umax) & -128;
 
 			if (cpu >= res_start && cpu <= res_end)
 			{
@@ -2243,7 +2243,7 @@ void lv2_obj::notify_all() noexcept
 			{
 				// Note: by the time of notification the thread could have been deallocated which is why the direct function is used
 				atomic_wait_engine::notify_one(cpu);
-			}
+			}*/
 		}
 	}
 
@@ -2342,7 +2342,7 @@ void lv2_obj::notify_all() noexcept
 	{
 		if (addr)
 		{
-			vm::reservation_notifier_notify(addr);
+			vm::reservation_notifier(addr).notify_all();
 		}
 	}
 }
