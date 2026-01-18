@@ -212,7 +212,10 @@ namespace utils
 #else
 		const u64 stop = get_tsc() + cycles;
 #endif
-		do pause();
+		do {
+			pause();
+			sched_yield();
+		}
 		while (get_tsc() < stop);
 	}
 
