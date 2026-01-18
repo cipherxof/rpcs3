@@ -768,6 +768,9 @@ namespace rsx
 
 	void thread::begin()
 	{
+		in_begin_end = true;
+		return;
+
 		if (cond_render_ctrl.hw_cond_active)
 		{
 			if (!cond_render_ctrl.eval_pending())
@@ -815,6 +818,12 @@ namespace rsx
 
 	void thread::end()
 	{
+        in_begin_end = false;
+        m_frame_stats.draw_calls++;
+        method_registers.current_draw_clause.post_execute_cleanup(m_ctx);
+        m_draw_processor.clear_push_buffers();
+        return; // Skip actual rendering
+
 		if (capture_current_frame)
 		{
 			capture::capture_draw_memory(this);
@@ -875,17 +884,8 @@ namespace rsx
 			wait_pause();
 		}
 
-		if ((state & (cpu_flag::dbg_global_pause + cpu_flag::exit)) == cpu_flag::dbg_global_pause)
-		{
-			// Wait 16ms during emulation pause. This reduces cpu load while still giving us the chance to render overlays.
-			do_local_task(rsx::FIFO::state::paused);
-			thread_ctrl::wait_on(state, old, 16000);
-		}
-		else
-		{
-			on_semaphore_acquire_wait();
-			std::this_thread::yield();
-		}
+		do_local_task(rsx::FIFO::state::paused);
+		thread_ctrl::wait_on(state, old, 16000);
 	}
 
 	void thread::post_vblank_event(u64 post_event_time)
@@ -1032,7 +1032,7 @@ namespace rsx
 				const u64 wait_for = current >= post_event_time ? 0 : post_event_time - current;
 
 #ifdef __linux__
-				const u64 wait_sleep = wait_for;
+				const u64 wait_sleep = 16000;// wait_for;
 #else
 				// Substract host operating system min sleep quantom to get sleep time
 				const u64 wait_sleep = wait_for - u64{wait_for >= host_min_quantum} * host_min_quantum;
@@ -1125,19 +1125,15 @@ namespace rsx
 			// Update sub-units every 64 cycles. The local handler is invoked for other functions externally on-demand anyway.
 			// This avoids expensive calls to check timestamps which involves reading some values from TLS storage on windows.
 			// If something is going on in the backend that requires an update, set the interrupt bit explicitly.
-			if ((m_cycles_counter++ & 63) == 0 || m_eng_interrupt_mask)
-			{
-				// Execute backend-local tasks first
-				do_local_task(performance_counters.state);
-
-				// Update other sub-units
-				zcull_ctrl->update(this);
-
-				if (m_host_dma_ctrl)
-				{
-					m_host_dma_ctrl->update();
-				}
-			}
+            if (m_eng_interrupt_mask)
+            {
+                do_local_task(performance_counters.state);
+            }
+            
+            if (ctrl->get == (ctrl->put & ~3))
+            {
+                thread_ctrl::wait_for(100); // 100us when idle
+            }
 
 			// Execute FIFO queue
 			run_FIFO();
@@ -1289,6 +1285,13 @@ namespace rsx
 
 	void thread::get_framebuffer_layout(rsx::framebuffer_creation_context context, framebuffer_layout &layout)
 	{
+        layout = {};
+        layout.width = 1280;
+        layout.height = 720;
+        layout.ignore_change = true;
+        m_graphics_state.set(rsx::rtt_config_valid);
+        return;
+
 		layout = {};
 
 		layout.ignore_change = true;
@@ -2028,14 +2031,14 @@ namespace rsx
 
 	void thread::analyse_current_rsx_pipeline()
 	{
-		m_program_cache_hint.invalidate(m_graphics_state.load());
-
-		prefetch_vertex_program();
-		prefetch_fragment_program();
+        m_graphics_state.clear(rsx::pipeline_state::vertex_program_ucode_dirty | rsx::pipeline_state::fragment_program_ucode_dirty);
 	}
 
 	void thread::get_current_vertex_program(const std::array<std::unique_ptr<rsx::sampled_image_descriptor_base>, rsx::limits::vertex_textures_count>& sampler_descriptors)
 	{
+		m_graphics_state.clear(rsx::pipeline_state::vertex_program_dirty);
+		return;
+		
 		if (m_graphics_state.test(rsx::pipeline_state::xform_instancing_state_dirty))
 		{
 			current_vertex_program.ctrl = 0;
@@ -2083,6 +2086,9 @@ namespace rsx
 
 	void thread::get_current_fragment_program(const std::array<std::unique_ptr<rsx::sampled_image_descriptor_base>, rsx::limits::fragment_textures_count>& sampler_descriptors)
 	{
+		m_graphics_state.clear(rsx::pipeline_state::fragment_program_dirty);
+        return;
+
 		if (!m_graphics_state.test(rsx::pipeline_state::fragment_program_dirty))
 		{
 			return;
@@ -2510,6 +2516,11 @@ namespace rsx
 
 	void thread::check_zcull_status(bool framebuffer_swap)
 	{
+        zcull_surface_active = false;
+        zcull_ctrl->set_enabled(this, false);
+        zcull_ctrl->set_status(this, false, false, false);
+		return;
+
 		const bool zcull_rendering_enabled = !!method_registers.registers[NV4097_SET_ZCULL_EN];
 		const bool zcull_stats_enabled = !!method_registers.registers[NV4097_SET_ZCULL_STATS_ENABLE];
 		const bool zcull_pixel_cnt_enabled = !!method_registers.registers[NV4097_SET_ZPASS_PIXEL_COUNT_ENABLE];
@@ -2621,6 +2632,9 @@ namespace rsx
 
 	void thread::sync()
 	{
+		m_eng_interrupt_mask.clear(rsx::pipe_flush_interrupt);
+		return;
+
 		m_eng_interrupt_mask.clear(rsx::pipe_flush_interrupt);
 
 		mm_flush();
@@ -2828,6 +2842,10 @@ namespace rsx
 		{
 			return;
 		}
+
+        remaining = utils::aligned_div(remaining, div);
+        thread_ctrl::wait_for(remaining, false);
+		return;
 
 		// Some cases do not need full delay
 		remaining = utils::aligned_div(remaining, div);
@@ -3340,6 +3358,28 @@ namespace rsx
 
 	void thread::handle_emu_flip(u32 buffer)
 	{
+        current_display_buffer = buffer;
+        flip_status = CELL_GCM_DISPLAY_FLIP_STATUS_DONE;
+        flip_notification_count = 1;
+        
+        if (!isHLE)
+        {
+            sys_rsx_context_attribute(0x55555555, 0xFEC, buffer, 0, 0, 0);
+        }
+        else if (auto ptr = flip_handler)
+        {
+            intr_thread->cmd_list
+            ({
+                { ppu_cmd::set_args, 1 }, u64{ 1 },
+                { ppu_cmd::lle_call, ptr },
+                { ppu_cmd::sleep, 0 }
+            });
+            intr_thread->cmd_notify.store(1);
+            intr_thread->cmd_notify.notify_one();
+        }
+        
+        return;
+
 		if (m_queued_flip.in_progress)
 		{
 			// Rescursion not allowed!
