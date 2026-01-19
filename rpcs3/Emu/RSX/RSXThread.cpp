@@ -1094,7 +1094,7 @@ namespace rsx
 		} join_vblank_obj{};
 
 		// Raise priority above other threads
-		thread_ctrl::scoped_priority high_prio(+1);
+		thread_ctrl::scoped_priority high_prio(0);
 
 		if (g_cfg.core.thread_scheduler != thread_scheduler_mode::os)
 		{
@@ -1103,18 +1103,13 @@ namespace rsx
 
 		while (!test_stopped())
 		{
-			// Wait for external pause events
 			if (external_interrupt_lock)
 			{
 				wait_pause();
-
 				if (!rsx_thread_running)
-				{
 					return;
-				}
 			}
 
-			// Note a possible rollback address
 			if (sync_point_request && !in_begin_end)
 			{
 				restore_point = ctrl->get;
@@ -1122,20 +1117,28 @@ namespace rsx
 				sync_point_request.release(false);
 			}
 
-			// Update sub-units every 64 cycles. The local handler is invoked for other functions externally on-demand anyway.
-			// This avoids expensive calls to check timestamps which involves reading some values from TLS storage on windows.
-			// If something is going on in the backend that requires an update, set the interrupt bit explicitly.
-            if (m_eng_interrupt_mask)
-            {
-                do_local_task(performance_counters.state);
-            }
-            
-            if (ctrl->get == (ctrl->put & ~3))
-            {
-                thread_ctrl::wait_for(100); // 100us when idle
-            }
+			const bool fifo_empty = is_fifo_idle();
+			
+			if (m_eng_interrupt_mask)
+			{
+				do_local_task(performance_counters.state);
+			}
+			
+			if (fifo_empty)
+			{
+				thread_ctrl::wait_for(1000); // 1ms sleep when idle
+				performance_counters.idle_time += 1000;
+				continue;
+			}
+			else
+			{
+				if ((m_cycles_counter++ & 0xFF) == 0)
+				{
+					std::this_thread::yield();
+				}
+			}
+		
 
-			// Execute FIFO queue
 			run_FIFO();
 		}
 	}
@@ -1199,6 +1202,15 @@ namespace rsx
 
 	void thread::do_local_task(FIFO::state state)
 	{
+        /*m_eng_interrupt_mask.clear(rsx::backend_interrupt);
+        
+        if (async_flip_requested & flip_request::emu_requested)
+        {
+            handle_emu_flip(async_flip_buffer);
+        }
+        
+        return;*/
+
 		m_eng_interrupt_mask.clear(rsx::backend_interrupt);
 
 		if (async_flip_requested & flip_request::emu_requested)
@@ -3147,8 +3159,7 @@ namespace rsx
 
 			while (external_interrupt_lock && (cpu_flag::ret - state))
 			{
-				// TODO: Investigate non busy-spinning method
-				utils::pause();
+				thread_ctrl::wait_for(100); // 100us sleep
 			}
 
 			external_interrupt_ack.store(false);
@@ -3180,6 +3191,13 @@ namespace rsx
 
 	void thread::on_frame_end(u32 buffer, bool forced)
 	{
+        // Minimal frame end
+        m_queued_flip.stats = {};
+        m_queued_flip.push(buffer);
+        m_queued_flip.skip_frame = true;
+        m_frame_stats = {};
+		return;
+
 		bool pause_emulator = false;
 
 		// MM sync. This is a pre-emptive operation, so we can use a deferred request.
@@ -3358,10 +3376,12 @@ namespace rsx
 
 	void thread::handle_emu_flip(u32 buffer)
 	{
+        // Minimal flip handling
         current_display_buffer = buffer;
         flip_status = CELL_GCM_DISPLAY_FLIP_STATUS_DONE;
         flip_notification_count = 1;
         
+        // Send flip event
         if (!isHLE)
         {
             sys_rsx_context_attribute(0x55555555, 0xFEC, buffer, 0, 0, 0);
@@ -3506,14 +3526,9 @@ namespace rsx
 
 	void thread::evaluate_cpu_usage_reduction_limits()
 	{
-		const u64 max_preempt_count = g_cfg.core.max_cpu_preempt_count_per_frame;
-
-		if (!max_preempt_count)
-		{
-			frame_times.clear();
-			lv2_obj::set_yield_frequency(0, 0);
-			return;
-		}
+		frame_times.clear();
+		lv2_obj::set_yield_frequency(0, 0);
+		return;
 
 		const u64 current_time = get_system_time();
 		const u64 current_tsc = utils::get_tsc();
@@ -3565,7 +3580,7 @@ namespace rsx
 				prev_preempt_count = frame_times[i].preempt_count;
 			}
 
-			preempt_count = std::min<u64>(frame_times.back().preempt_count, max_preempt_count);
+			preempt_count = std::min<u64>(frame_times.back().preempt_count, 400);
 
 			u32 fails = 0;
 			u32 hard_fails = 0;
@@ -3641,7 +3656,7 @@ namespace rsx
 					}
 					else
 					{
-						preempt_count = std::min<u64>(preempt_count + 4, max_preempt_count);
+						preempt_count = std::min<u64>(preempt_count + 4, 400);
 					}
 				}
 				else
@@ -3659,7 +3674,7 @@ namespace rsx
 
 			if (hard_measures_taken)
 			{
-				preempt_fail_old_preempt_count = std::max<u64>(preempt_fail_old_preempt_count, std::min<u64>(frame_times.back().preempt_count, max_preempt_count));
+				preempt_fail_old_preempt_count = std::max<u64>(preempt_fail_old_preempt_count, std::min<u64>(frame_times.back().preempt_count, 400));
 			}
 			else if (preempt_fail_old_preempt_count)
 			{
