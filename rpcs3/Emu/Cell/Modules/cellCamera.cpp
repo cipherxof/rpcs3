@@ -1641,6 +1641,8 @@ DECLARE(ppu_module_manager::cellCamera)("cellCamera", []()
 
 void camera_context::operator()()
 {
+	return;
+	
 	while (thread_ctrl::state() != thread_state::aborting && !Emu.IsStopped())
 	{
 		// send ATTACH event
