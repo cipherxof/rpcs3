@@ -1251,7 +1251,7 @@ namespace rsx
 
 		if (m_eng_interrupt_mask & rsx::pipe_flush_interrupt)
 		{
-			sync();
+			m_eng_interrupt_mask.clear(rsx::pipe_flush_interrupt);
 		}
 
 		if (is_stopped())
